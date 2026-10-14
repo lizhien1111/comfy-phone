@@ -20,6 +20,8 @@
 
   /** Object URLs created for gallery thumbs — revoke on refresh */
   const thumbUrls = [];
+  /** @type {Set<string>} */
+  const selectedGalleryIds = new Set();
   let lightboxUrl = null;
   let lightboxItem = null;
 
@@ -453,15 +455,9 @@
     syncGhSettingsUi();
   }
 
-  /**
-   * Upload blob to private gallery repo via Contents API.
-   * Returns true on success, false if skipped or failed (status already set on fail).
-   */
-  async function maybeUploadToGithub(blob, filename) {
-    const chk = $("chkSaveGithub");
-    if (!chk || !chk.checked) return false;
-    if (!blob) return false;
 
+  async function uploadBlobToGithub(blob, filename, { quiet } = {}) {
+    if (!blob) return false;
     const tokenEl = $("ghToken");
     const token = (
       (tokenEl && tokenEl.value) ||
@@ -469,10 +465,9 @@
       ""
     ).trim();
     if (!token) {
-      setStatus("已存图库 · 勾选了存入仓库但未填 Token", "err");
+      if (!quiet) setStatus("存入仓库需要 Token（勾选存入仓库并填写）", "err");
       return false;
     }
-
     let repo = (
       ($("ghRepo") && $("ghRepo").value) ||
       localStorage.getItem(LS_GH_REPO) ||
@@ -481,12 +476,11 @@
     if (!repo) repo = DEFAULT_GH_REPO;
     const parts = repo.split("/");
     if (parts.length !== 2 || !parts[0] || !parts[1]) {
-      setStatus("仓库名无效，应为 owner/repo", "err");
+      if (!quiet) setStatus("仓库名无效，应为 owner/repo", "err");
       return false;
     }
     const owner = parts[0];
     const repoName = parts[1];
-
     const safeName = sanitizeFilename(filename);
     const ts = Date.now();
     const day = galleryDatePath(new Date());
@@ -501,7 +495,6 @@
         .split("/")
         .map(encodeURIComponent)
         .join("/");
-
     try {
       const content = await blobToBase64(blob);
       const res = await fetch(api, {
@@ -524,17 +517,26 @@
           const err = await res.json();
           if (err && err.message) detail = String(err.message).slice(0, 160);
         } catch (e) {}
-        // never echo token
-        setStatus("存入仓库失败: " + detail, "err");
+        if (!quiet) setStatus("存入仓库失败: " + detail, "err");
         return false;
       }
-      setStatus("已存入仓库 · " + path, "ok");
+      if (!quiet) setStatus("已存入仓库 · " + path, "ok");
       return true;
     } catch (e) {
       const msg = e && e.message ? e.message : String(e);
-      setStatus("存入仓库失败: " + msg.slice(0, 160), "err");
+      if (!quiet) setStatus("存入仓库失败: " + msg.slice(0, 160), "err");
       return false;
     }
+  }
+
+  /**
+   * Upload blob to private gallery repo via Contents API.
+   * Returns true on success, false if skipped or failed (status already set on fail).
+   */
+  async function maybeUploadToGithub(blob, filename) {
+    const chk = $("chkSaveGithub");
+    if (!chk || !chk.checked) return false;
+    return uploadBlobToGithub(blob, filename, { quiet: false });
   }
 
 
@@ -609,11 +611,33 @@
     }
     empty.hidden = true;
 
+    // drop selection for deleted ids
+    const idSet = new Set(items.map((x) => x.id));
+    for (const id of Array.from(selectedGalleryIds)) {
+      if (!idSet.has(id)) selectedGalleryIds.delete(id);
+    }
+
     for (const item of items) {
+      const wrap = document.createElement("div");
+      wrap.className = "gallery-item" + (selectedGalleryIds.has(item.id) ? " selected" : "");
+      wrap.dataset.id = item.id;
+      wrap.title = (item.prompt || item.filename || "").slice(0, 80);
+
+      const chk = document.createElement("input");
+      chk.type = "checkbox";
+      chk.className = "gallery-check";
+      chk.checked = selectedGalleryIds.has(item.id);
+      chk.addEventListener("click", (ev) => ev.stopPropagation());
+      chk.addEventListener("change", () => {
+        if (chk.checked) selectedGalleryIds.add(item.id);
+        else selectedGalleryIds.delete(item.id);
+        wrap.classList.toggle("selected", chk.checked);
+        updateGallerySelMeta();
+      });
+
       const btn = document.createElement("button");
       btn.type = "button";
-      btn.className = "gallery-item";
-      btn.title = (item.prompt || item.filename || "").slice(0, 80);
+      btn.style.cssText = "display:block;width:100%;height:100%;padding:0;border:0;background:transparent;cursor:pointer";
       const img = document.createElement("img");
       img.alt = "缩略图";
       img.loading = "lazy";
@@ -622,9 +646,71 @@
       img.src = url;
       btn.appendChild(img);
       btn.addEventListener("click", () => openLightbox(item));
-      grid.appendChild(btn);
+
+      wrap.appendChild(chk);
+      wrap.appendChild(btn);
+      grid.appendChild(wrap);
     }
+    updateGallerySelMeta();
   }
+
+  function updateGallerySelMeta() {
+    const meta = $("galleryMeta");
+    if (!meta) return;
+    const n = selectedGalleryIds.size;
+    const base = meta.textContent.replace(/ · 已勾选 \d+ 张$/, "");
+    meta.textContent = n > 0 ? base + " · 已勾选 " + n + " 张" : base;
+  }
+
+  async function getSelectedGalleryItems() {
+    const G = window.ComfyPhoneGallery;
+    if (!G) return [];
+    const all = await G.listImages();
+    return all.filter((x) => selectedGalleryIds.has(x.id));
+  }
+
+  async function saveSelectedLocal() {
+    const items = await getSelectedGalleryItems();
+    if (!items.length) {
+      setStatus("请先勾选图库里的图片", "err");
+      return;
+    }
+    setStatus("正在保存 " + items.length + " 张到本地…", "run");
+    for (const item of items) {
+      downloadBlob(item.blob, item.filename || "comfy_phone.png");
+      await new Promise((r) => setTimeout(r, 350));
+    }
+    setStatus("已触发下载 " + items.length + " 张（请允许浏览器下载）", "ok");
+  }
+
+  async function saveSelectedGithub() {
+    const items = await getSelectedGalleryItems();
+    if (!items.length) {
+      setStatus("请先勾选图库里的图片", "err");
+      return;
+    }
+    // ensure token UI visible if empty
+    const tok = (($("ghToken") && $("ghToken").value) || localStorage.getItem(LS_GH_TOKEN) || "").trim();
+    if (!tok) {
+      const chk = $("chkSaveGithub");
+      if (chk) chk.checked = true;
+      syncGhSettingsUi();
+      setStatus("请先填写 GitHub Token，再点存入仓库", "err");
+      return;
+    }
+    setStatus("正在上传 " + items.length + " 张到仓库…", "run");
+    let ok = 0;
+    let fail = 0;
+    for (const item of items) {
+      const r = await uploadBlobToGithub(item.blob, item.filename || "comfy_phone.png", { quiet: true });
+      if (r) ok++;
+      else fail++;
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    if (fail === 0) setStatus("已存入仓库 " + ok + " 张", "ok");
+    else setStatus("仓库上传：成功 " + ok + " / 失败 " + fail, "err");
+  }
+
 
   function openLightbox(item) {
     lightboxItem = item;
@@ -1422,6 +1508,28 @@
     });
     $("btnClearGallery").addEventListener("click", clearGallery);
     if ($("btnPullImages")) $("btnPullImages").addEventListener("click", pullNewImages);
+    if ($("btnGalSelectAll")) {
+      $("btnGalSelectAll").addEventListener("click", async () => {
+        const G = window.ComfyPhoneGallery;
+        if (!G) return;
+        const items = await G.listImages();
+        selectedGalleryIds.clear();
+        for (const it of items) selectedGalleryIds.add(it.id);
+        await renderGallery();
+      });
+    }
+    if ($("btnGalClearSel")) {
+      $("btnGalClearSel").addEventListener("click", async () => {
+        selectedGalleryIds.clear();
+        await renderGallery();
+      });
+    }
+    if ($("btnGalSaveLocal")) $("btnGalSaveLocal").addEventListener("click", () => {
+      saveSelectedLocal().catch((e) => setStatus("保存失败: " + (e && e.message ? e.message : String(e)), "err"));
+    });
+    if ($("btnGalSaveGh")) $("btnGalSaveGh").addEventListener("click", () => {
+      saveSelectedGithub().catch((e) => setStatus("上传失败: " + (e && e.message ? e.message : String(e)), "err"));
+    });
     if ($("btnCleanComfy")) $("btnCleanComfy").addEventListener("click", cleanComfy);
     if ($("btnShutdownComfy")) $("btnShutdownComfy").addEventListener("click", shutdownComfy);
     if ($("btnPowerOffInstance")) $("btnPowerOffInstance").addEventListener("click", powerOffInstance);
