@@ -1405,11 +1405,6 @@
         enterApp({ skipConnect: false }).catch(() => showPage("app"));
       });
     }
-    if ($("btnGalleryOnly")) {
-      $("btnGalleryOnly").addEventListener("click", () => {
-        enterApp({ skipConnect: true }).catch(() => showPage("app"));
-      });
-    }
     if ($("btnChangeServer")) {
       $("btnChangeServer").addEventListener("click", () => {
         syncUrlFields("baseUrl");
