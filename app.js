@@ -327,6 +327,8 @@
     img.src = lastBlobUrl;
     img.hidden = false;
     $("placeholder").hidden = true;
+    const box = document.querySelector(".preview-box");
+    if (box) box.classList.add("has-image");
     $("btnSave").disabled = false;
   }
 
@@ -858,6 +860,10 @@
     setStatus("排队中… 1/" + batch, "run");
     $("preview").hidden = true;
     $("placeholder").hidden = false;
+    const box = document.querySelector(".preview-box");
+    if (box) box.classList.remove("has-image");
+    const prev = $("preview");
+    if (prev) { prev.removeAttribute("src"); prev.src = ""; }
 
     try {
       const ok = await connectComfy();

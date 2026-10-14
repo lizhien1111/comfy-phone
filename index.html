@@ -146,25 +146,52 @@
     .status--err { color: var(--err); border-color: #4a2a2a; }
     .preview-box {
       margin-top: 14px;
-      background: var(--card);
-      border: 1px solid var(--border);
+      background: linear-gradient(180deg, #1a1f2a 0%, #12151c 100%);
+      border: 1px dashed #3a4150;
       border-radius: var(--radius);
       overflow: hidden;
-      min-height: 180px;
+      min-height: 220px;
       display: flex;
       align-items: center;
       justify-content: center;
+      position: relative;
+    }
+    .preview-box.has-image {
+      border-style: solid;
+      border-color: var(--border);
+      background: #0b0d12;
     }
     .preview-box img {
       display: block;
       width: 100%;
       height: auto;
+      max-height: 70vh;
+      object-fit: contain;
+    }
+    .preview-box img[hidden],
+    .placeholder[hidden] {
+      display: none !important;
     }
     .placeholder {
       color: var(--muted);
-      padding: 40px 16px;
+      padding: 36px 20px;
       text-align: center;
-      font-size: 0.9rem;
+      font-size: 0.88rem;
+      line-height: 1.55;
+      max-width: 16em;
+    }
+    .placeholder::before {
+      content: "";
+      display: block;
+      width: 48px;
+      height: 48px;
+      margin: 0 auto 14px;
+      border-radius: 12px;
+      border: 1.5px dashed #4a5568;
+      background:
+        linear-gradient(#4a5568, #4a5568) center / 18px 1.5px no-repeat,
+        linear-gradient(#4a5568, #4a5568) center / 1.5px 18px no-repeat;
+      opacity: 0.7;
     }
     .hint {
       margin-top: 18px;
@@ -388,8 +415,8 @@
     <div class="status" id="status">就绪</div>
 
     <div class="preview-box">
-      <div class="placeholder" id="placeholder">生成后图片显示在这里</div>
-      <img id="preview" alt="出图预览" hidden />
+      <div class="placeholder" id="placeholder">生成后预览会出现在这里</div>
+      <img id="preview" alt="" hidden />
     </div>
     <button type="button" class="btn btn-save" id="btnSave" disabled>保存图片</button>
     <button type="button" class="btn btn-ghost" id="btnCleanComfy" style="width:100%;margin-top:10px">清理 Comfy（队列/历史/显存/原图）</button>
