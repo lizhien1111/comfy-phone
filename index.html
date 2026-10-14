@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f1115" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>手机出图 · Comfy</title>
+  <style>
+    :root {
+      --bg: #0f1115;
+      --card: #1a1d24;
+      --border: #2a2f3a;
+      --text: #e8eaed;
+      --muted: #9aa0a6;
+      --accent: #6c8cff;
+      --accent-press: #5570e0;
+      --ok: #3dd68c;
+      --err: #ff6b6b;
+      --run: #f0c14b;
+      --radius: 14px;
+      --tap: 48px;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC",
+        "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      font-size: 16px;
+      line-height: 1.45;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .wrap {
+      max-width: 560px;
+      margin: 0 auto;
+      padding: 16px 16px calc(24px + env(safe-area-inset-bottom));
+    }
+    h1 {
+      font-size: 1.25rem;
+      font-weight: 650;
+      margin: 8px 0 4px;
+      letter-spacing: 0.02em;
+    }
+    .sub {
+      color: var(--muted);
+      font-size: 0.85rem;
+      margin-bottom: 16px;
+    }
+    label {
+      display: block;
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin: 12px 0 6px;
+      font-weight: 500;
+    }
+    input[type="text"],
+    input[type="number"],
+    input[type="text"],
+    textarea {
+      width: 100%;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      padding: 12px 14px;
+      font-size: 16px; /* avoid iOS zoom */
+      outline: none;
+    }
+    textarea {
+      min-height: 120px;
+      resize: vertical;
+      line-height: 1.4;
+    }
+    textarea#negative { min-height: 72px; }
+    input:focus, textarea:focus {
+      border-color: var(--accent);
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .row3 {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 10px;
+    }
+    .seed-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      align-items: stretch;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: var(--tap);
+      padding: 0 18px;
+      border: none;
+      border-radius: var(--radius);
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      user-select: none;
+    }
+    .btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    .btn-primary {
+      width: 100%;
+      margin-top: 16px;
+      background: var(--accent);
+      color: #fff;
+    }
+    .btn-primary:not(:disabled):active { background: var(--accent-press); }
+    .btn-ghost {
+      background: var(--card);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-save {
+      width: 100%;
+      margin-top: 10px;
+      background: #243028;
+      color: var(--ok);
+      border: 1px solid #2f4a3a;
+    }
+    .status {
+      margin-top: 12px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      font-size: 0.9rem;
+      color: var(--muted);
+      word-break: break-word;
+    }
+    .status--run { color: var(--run); border-color: #4a4020; }
+    .status--ok { color: var(--ok); border-color: #2f4a3a; }
+    .status--err { color: var(--err); border-color: #4a2a2a; }
+    .preview-box {
+      margin-top: 14px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      min-height: 180px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .preview-box img {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+    .placeholder {
+      color: var(--muted);
+      padding: 40px 16px;
+      text-align: center;
+      font-size: 0.9rem;
+    }
+    .hint {
+      margin-top: 18px;
+      font-size: 0.75rem;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .gallery-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-top: 28px;
+      margin-bottom: 10px;
+    }
+    .gallery-head h2 {
+      margin: 0;
+      font-size: 1.05rem;
+      font-weight: 650;
+    }
+    .gallery-meta {
+      color: var(--muted);
+      font-size: 0.75rem;
+      margin-bottom: 10px;
+    }
+    .gallery-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+    .gallery-item {
+      position: relative;
+      aspect-ratio: 9 / 16;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      padding: 0;
+      cursor: pointer;
+    }
+    .gallery-item img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .gallery-empty {
+      color: var(--muted);
+      font-size: 0.85rem;
+      padding: 20px 8px;
+      text-align: center;
+      border: 1px dashed var(--border);
+      border-radius: var(--radius);
+    }
+    .btn-danger {
+      background: #2a1a1a;
+      color: var(--err);
+      border: 1px solid #4a2a2a;
+      min-height: 40px;
+      padding: 0 12px;
+      font-size: 0.85rem;
+    }
+    .lightbox {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.92);
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      padding: 12px 12px calc(12px + env(safe-area-inset-bottom));
+    }
+    .lightbox[hidden] { display: none !important; }
+    .lightbox-bar {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 10px;
+      flex-shrink: 0;
+    }
+    .lightbox-bar .btn { flex: 1; min-height: 44px; font-size: 0.95rem; }
+    .lightbox-stage {
+      flex: 1;
+      overflow: auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      -webkit-overflow-scrolling: touch;
+    }
+    .lightbox-stage img {
+      max-width: 100%;
+      height: auto;
+      border-radius: 8px;
+    }
+    .lightbox-info {
+      flex-shrink: 0;
+      margin-top: 8px;
+      font-size: 0.75rem;
+      color: var(--muted);
+      word-break: break-word;
+      max-height: 4.5em;
+      overflow: auto;
+    }
+
+    .connect-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      align-items: stretch;
+    }
+    .conn {
+      margin-top: 8px;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+    .conn--ok { color: var(--ok); }
+    .conn--err { color: var(--err); }
+    .conn--run { color: var(--run); }
+
+    .title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin: 8px 0 4px;
+    }
+    .title-row h1 { margin: 0; flex: 1; }
+    .lang-select {
+      appearance: none;
+      -webkit-appearance: none;
+      min-height: 36px;
+      padding: 0 28px 0 12px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%239aa0a6' d='M1 1l5 5 5-5'/%3E%3C/svg%3E") no-repeat right 10px center;
+      color: var(--text);
+      font-size: 0.85rem;
+      font-weight: 600;
+      outline: none;
+    }
+    .lang-select:focus { border-color: var(--accent); }
+    /* hide Google chrome */
+    #google_translate_element, .goog-te-banner-frame, .goog-te-balloon-frame { display: none !important; }
+    body { top: 0 !important; }
+    .skiptranslate, .goog-te-spinner-pos { display: none !important; }
+    font { background: transparent !important; box-shadow: none !important; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="title-row skiptranslate">
+      <h1>手机出图</h1>
+      <select id="langSelect" class="lang-select" aria-label="Language">
+        <option value="">中文</option>
+        <option value="en">English</option>
+        <option value="ja">日本語</option>
+        <option value="ko">한국어</option>
+        <option value="zh-TW">繁體</option>
+        <option value="es">Español</option>
+        <option value="fr">Français</option>
+        <option value="de">Deutsch</option>
+        <option value="ru">Русский</option>
+        <option value="vi">Tiếng Việt</option>
+        <option value="th">ไทย</option>
+        <option value="id">Indonesia</option>
+      </select>
+    </div>
+    <p class="sub">粘贴 Comfy 地址并连接 → 改提示词出图 → 自动进图库</p>
+    <div id="google_translate_element" aria-hidden="true"></div>
+
+    <label for="baseUrl">服务器地址（必填）</label>
+    <div class="connect-row">
+      <input
+        id="baseUrl"
+        type="text"
+        inputmode="url"
+        autocomplete="url"
+        required
+        placeholder="https://u865025-xxxx.bjb1.seetacloud.com"
+      />
+      <button type="button" class="btn btn-ghost" id="btnConnect">连接</button>
+    </div>
+    <div class="conn" id="connStatus">未连接 · 粘贴 Comfy 公网地址后点连接</div>
+
+    <label for="prompt">提示词</label>
+    <textarea id="prompt" placeholder="描述你想生成的画面…"></textarea>
+
+    <label for="negative">负面提示词</label>
+    <textarea id="negative"></textarea>
+
+    <div class="row">
+      <div>
+        <label for="steps">步数</label>
+        <input id="steps" type="number" min="1" max="150" value="30" />
+      </div>
+      <div>
+        <label for="batch">张数</label>
+        <input id="batch" type="number" min="1" max="20" value="1" />
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label for="width">宽</label>
+        <input id="width" type="number" min="64" max="4096" step="8" value="1280" />
+      </div>
+      <div>
+        <label for="height">高</label>
+        <input id="height" type="number" min="64" max="4096" step="8" value="2560" />
+      </div>
+    </div>
+
+    <label for="seed">种子（空则随机；多张时每张 +1）</label>
+    <div class="seed-row">
+      <input id="seed" type="number" min="0" placeholder="留空随机" />
+      <button type="button" class="btn btn-ghost" id="btnRandSeed" aria-label="随机种子">随机</button>
+    </div>
+
+    <div class="row" style="margin-top:16px;gap:8px">
+      <button type="button" class="btn btn-primary" id="btnGen" style="margin-top:0;width:auto;flex:1">生成</button>
+      <button type="button" class="btn btn-danger" id="btnCancel" style="margin-top:0;min-height:var(--tap);flex:0.55" disabled>取消</button>
+    </div>
+    <div class="status" id="status">就绪</div>
+
+    <div class="preview-box">
+      <div class="placeholder" id="placeholder">生成后图片显示在这里</div>
+      <img id="preview" alt="出图预览" hidden />
+    </div>
+    <button type="button" class="btn btn-save" id="btnSave" disabled>保存图片</button>
+    <button type="button" class="btn btn-ghost" id="btnCleanComfy" style="width:100%;margin-top:10px">清理 Comfy（队列/历史/显存/原图）</button>
+    <button type="button" class="btn btn-danger" id="btnShutdownComfy" style="width:100%;margin-top:10px">关机 Comfy</button>
+    <button type="button" class="btn btn-danger" id="btnPowerOffInstance" style="width:100%;margin-top:10px">关实例</button>
+
+    <div class="gallery-head">
+      <h2>图库</h2>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+        <button type="button" class="btn btn-ghost" id="btnPullImages" style="min-height:40px;padding:0 12px;font-size:0.85rem">拉取新照片</button>
+        <button type="button" class="btn btn-danger" id="btnClearGallery">清空图库</button>
+      </div>
+    </div>
+    <p class="gallery-meta" id="galleryMeta">本机保存 · 加载中…</p>
+    <div class="gallery-grid" id="galleryGrid"></div>
+    <div class="gallery-empty" id="galleryEmpty" hidden>还没有图，生成后会自动进图库</div>
+
+    <p class="hint">
+      本页可放任意静态托管；填 AutoDL/Comfy 公网地址（不要加端口）后点「连接」。
+      跨域常被 CORS 拦：需 Comfy 开 CORS（如 --enable-cors-header）、或用 nginx / Cloudflare Worker / 本目录 <code>cors_proxy.py</code> 同源反代。
+      生成显示「出图中 x/y 步」；图在本机浏览器，清缓存会丢；实例关机前 Comfy output 也有原图。
+    </p>
+  </div>
+
+  <div class="lightbox" id="lightbox" hidden>
+    <div class="lightbox-bar">
+      <button type="button" class="btn btn-ghost" id="btnLbClose">关闭</button>
+      <button type="button" class="btn btn-save" id="btnLbSave" style="margin-top:0">保存/下载</button>
+    </div>
+    <div class="lightbox-stage">
+      <img id="lightboxImg" alt="图库大图" />
+    </div>
+    <div class="lightbox-info" id="lightboxInfo"></div>
+  </div>
+
+  <script src="workflow.js"></script>
+  <script src="gallery.js"></script>
+  <script src="app.js"></script>
+
+  <script>
+    function googleTranslateElementInit() {
+      new google.translate.TranslateElement({
+        pageLanguage: "zh-CN",
+        includedLanguages: "en,zh-CN,zh-TW,ja,ko,es,fr,de,ru,vi,th,id",
+        autoDisplay: false
+      }, "google_translate_element");
+    }
+    (function () {
+      function readGoogLang() {
+        var m = document.cookie.match(/(?:^|;\s*)googtrans=\/zh-CN\/([^;]+)/);
+        return m ? decodeURIComponent(m[1]) : "";
+      }
+      function setGoogLang(lang) {
+        var host = location.hostname;
+        var val = lang ? "/zh-CN/" + lang : "/zh-CN/zh-CN";
+        document.cookie = "googtrans=;path=/;expires=Thu, 01 Jan 1970 00:00:00 GMT";
+        document.cookie = "googtrans=" + val + ";path=/";
+        if (host && host.indexOf(".") !== -1) {
+          document.cookie = "googtrans=;domain=." + host + ";path=/;expires=Thu, 01 Jan 1970 00:00:00 GMT";
+          document.cookie = "googtrans=" + val + ";domain=." + host + ";path=/";
+        }
+      }
+      function syncSelect() {
+        var sel = document.getElementById("langSelect");
+        if (!sel) return;
+        var cur = readGoogLang();
+        if (cur === "zh-CN") cur = "";
+        if ([].some.call(sel.options, function (o) { return o.value === cur; })) {
+          sel.value = cur;
+        }
+      }
+      document.addEventListener("DOMContentLoaded", function () {
+        var sel = document.getElementById("langSelect");
+        if (!sel) return;
+        syncSelect();
+        sel.addEventListener("change", function () {
+          setGoogLang(sel.value);
+          location.reload();
+        });
+      });
+    })();
+  </script>
+  <script src="https://translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"></script>
+</body>
+</html>
