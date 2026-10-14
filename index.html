@@ -430,6 +430,20 @@
       margin-bottom: 4px;
     }
     .server-bar label { margin: 0; }
+    .btn-change-server {
+      width: 100%;
+      margin: 0 0 12px;
+      min-height: 48px;
+      background: transparent;
+      color: var(--accent);
+      border: 2px solid var(--accent);
+      font-size: 1rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+    .btn-change-server:active {
+      background: rgba(108, 140, 255, 0.15);
+    }
 
     /* hide Google chrome */
     #google_translate_element, .goog-te-banner-frame, .goog-te-balloon-frame { display: none !important; }
@@ -462,7 +476,7 @@
     <!-- ========== 启动页 ========== -->
     <section class="page" id="pageBoot">
       <h1 style="font-size:1.25rem;margin:4px 0 4px">启动 Comfy</h1>
-      <p class="sub">先开实例并拿到公网地址，再进出图</p>
+      <p class="sub">开机 → 填公网 / 拉起 Comfy → 进出图</p>
 
       <div class="boot-step">
         <h2>步骤 1 · 开实例</h2>
@@ -474,9 +488,9 @@
       </div>
 
       <div class="boot-step">
-        <h2>步骤 2 · 生成端口网址</h2>
-        <p>AutoDL：自定义服务开公网（常用 6006→443，地址不要加 :8443）。RunPod：用 Proxy / Public URL。</p>
-        <label for="bootUrl">公网地址</label>
+        <h2>步骤 2 · 填地址并拉起</h2>
+        <p>AutoDL 自定义服务开公网：<strong>6006</strong> 填 Comfy 地址（勿加 :8443），<strong>6008</strong> 填启动接口；RunPod 用各自 Public URL。</p>
+        <label for="bootUrl">Comfy 公网地址（6006）</label>
         <input
           id="bootUrl"
           type="text"
@@ -484,21 +498,16 @@
           autocomplete="url"
           placeholder="https://u865025-xxxx.bjb1.seetacloud.com"
         />
-      </div>
-
-      <div class="boot-step">
-        <h2>步骤 3 · 拉起 ComfyUI</h2>
-        <p>填启动接口（6008）后一键拉起，再用上面的 Comfy 公网地址检测连接。</p>
-        <label for="startApiUrl">启动接口地址（可选，6008 公网）</label>
+        <label for="startApiUrl">启动接口地址（6008，可选）</label>
         <input
           id="startApiUrl"
           type="text"
           inputmode="url"
           autocomplete="url"
-          placeholder="https://u….seetacloud.com（6008 映射的公网）"
+          placeholder="https://u….seetacloud.com（6008 映射）"
         />
         <p class="hint" style="margin:6px 0 10px;font-size:0.82rem;opacity:0.85">
-          AutoDL 把 <strong>6008</strong> 也开公网，把该公网地址填到这里；点「拉起 Comfy」即可（与 6006 的 Comfy 地址通常不同）。
+          有启动接口时点「拉起 Comfy」；再点「检测连接」确认 6006 通了，然后进入出图。
         </p>
         <div class="boot-actions">
           <button type="button" class="btn btn-primary" id="btnStartComfy">拉起 Comfy</button>
@@ -515,12 +524,12 @@
 
     <!-- ========== 出图页 ========== -->
     <section class="page" id="pageApp" hidden>
+    <button type="button" class="btn btn-change-server" id="btnChangeServer">← 更换服务器 / 启动页</button>
     <p class="sub">改提示词出图 → 图进本机图库</p>
 
     <div class="compact-connect">
       <div class="server-bar">
         <label for="baseUrl">服务器</label>
-        <button type="button" class="btn btn-ghost" id="btnChangeServer" style="min-height:36px;padding:0 12px;font-size:0.85rem">更换服务器</button>
       </div>
       <div class="connect-row">
         <input

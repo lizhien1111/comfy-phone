@@ -1261,7 +1261,7 @@
     } catch (e) {}
     if (!comfyBase) {
       setConnStatus(
-        "启动接口已响应，但未填 Comfy 公网地址（步骤 2）— 请填 6006 公网后点检测",
+        "启动接口已响应，但未填 Comfy 公网地址 — 请填 6006 公网后点检测",
         startJson && startJson.ok ? "ok" : "err"
       );
       return !!(startJson && startJson.ok);
