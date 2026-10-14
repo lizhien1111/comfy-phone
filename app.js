@@ -1290,7 +1290,7 @@
       await sleep(2500);
     }
     setConnStatus(
-      "启动接口已调用，但 Comfy 公网仍未连通（超时）。可再点检测或打开 ComfyUI。",
+      "启动接口已调用，但 Comfy 公网仍未连通（超时）。可再点检测连接。",
       "err"
     );
     return false;
@@ -1357,20 +1357,6 @@
       });
     }
 
-    if ($("btnOpenComfy")) {
-      $("btnOpenComfy").addEventListener("click", () => {
-        syncUrlFields("bootUrl");
-        let base;
-        try {
-          base = requireBase();
-        } catch (e) {
-          setConnStatus("失败: " + e.message, "err");
-          return;
-        }
-        localStorage.setItem("comfy_phone_base", base);
-        window.open(base, "_blank", "noopener,noreferrer");
-      });
-    }
 
     if ($("startApiUrl")) {
       const persistApi = () => {
