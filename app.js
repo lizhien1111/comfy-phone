@@ -332,6 +332,176 @@
     $("btnSave").disabled = false;
   }
 
+
+  const LS_SAVE_GH = "comfy_phone_save_github";
+  const LS_GH_TOKEN = "comfy_phone_gh_token";
+  const LS_GH_REPO = "comfy_phone_gh_repo";
+  const DEFAULT_GH_REPO = "lizhien1111/comfy-phone-gallery";
+
+  function blobToBase64(blob) {
+    return new Promise(function (resolve, reject) {
+      const reader = new FileReader();
+      reader.onload = function () {
+        const dataUrl = String(reader.result || "");
+        const i = dataUrl.indexOf(",");
+        resolve(i >= 0 ? dataUrl.slice(i + 1) : dataUrl);
+      };
+      reader.onerror = function () {
+        reject(reader.error || new Error("read failed"));
+      };
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  function pad2(n) {
+    return String(n).padStart(2, "0");
+  }
+
+  function galleryDatePath(d) {
+    d = d || new Date();
+    return (
+      d.getFullYear() +
+      "-" +
+      pad2(d.getMonth() + 1) +
+      "-" +
+      pad2(d.getDate())
+    );
+  }
+
+  function sanitizeFilename(name) {
+    name = (name || "comfy_phone.png").replace(/[^a-zA-Z0-9._-]+/g, "_");
+    if (!/\.png$/i.test(name)) name += ".png";
+    return name;
+  }
+
+  function syncGhSettingsUi() {
+    const chk = $("chkSaveGithub");
+    const panel = $("ghSettings");
+    if (!chk || !panel) return;
+    panel.hidden = !chk.checked;
+  }
+
+  function loadGhSettings() {
+    const chk = $("chkSaveGithub");
+    if (chk) {
+      chk.checked = localStorage.getItem(LS_SAVE_GH) === "1";
+    }
+    const tok = $("ghToken");
+    if (tok) tok.value = localStorage.getItem(LS_GH_TOKEN) || "";
+    const repo = $("ghRepo");
+    if (repo) {
+      repo.value =
+        localStorage.getItem(LS_GH_REPO) || DEFAULT_GH_REPO;
+      if (!repo.value) repo.placeholder = DEFAULT_GH_REPO;
+    }
+    syncGhSettingsUi();
+  }
+
+  function persistGhSettings() {
+    const chk = $("chkSaveGithub");
+    if (chk) {
+      localStorage.setItem(LS_SAVE_GH, chk.checked ? "1" : "0");
+    }
+    const tok = $("ghToken");
+    if (tok) {
+      const v = (tok.value || "").trim();
+      if (v) localStorage.setItem(LS_GH_TOKEN, v);
+      else localStorage.removeItem(LS_GH_TOKEN);
+    }
+    const repo = $("ghRepo");
+    if (repo) {
+      const v = (repo.value || "").trim() || DEFAULT_GH_REPO;
+      localStorage.setItem(LS_GH_REPO, v);
+      repo.value = v;
+    }
+    syncGhSettingsUi();
+  }
+
+  /**
+   * Upload blob to private gallery repo via Contents API.
+   * Returns true on success, false if skipped or failed (status already set on fail).
+   */
+  async function maybeUploadToGithub(blob, filename) {
+    const chk = $("chkSaveGithub");
+    if (!chk || !chk.checked) return false;
+    if (!blob) return false;
+
+    const tokenEl = $("ghToken");
+    const token = (
+      (tokenEl && tokenEl.value) ||
+      localStorage.getItem(LS_GH_TOKEN) ||
+      ""
+    ).trim();
+    if (!token) {
+      setStatus("已存图库 · 勾选了存入仓库但未填 Token", "err");
+      return false;
+    }
+
+    let repo = (
+      ($("ghRepo") && $("ghRepo").value) ||
+      localStorage.getItem(LS_GH_REPO) ||
+      DEFAULT_GH_REPO
+    ).trim();
+    if (!repo) repo = DEFAULT_GH_REPO;
+    const parts = repo.split("/");
+    if (parts.length !== 2 || !parts[0] || !parts[1]) {
+      setStatus("仓库名无效，应为 owner/repo", "err");
+      return false;
+    }
+    const owner = parts[0];
+    const repoName = parts[1];
+
+    const safeName = sanitizeFilename(filename);
+    const ts = Date.now();
+    const day = galleryDatePath(new Date());
+    const path = "gallery/" + day + "/" + ts + "-" + safeName;
+    const api =
+      "https://api.github.com/repos/" +
+      encodeURIComponent(owner) +
+      "/" +
+      encodeURIComponent(repoName) +
+      "/contents/" +
+      path
+        .split("/")
+        .map(encodeURIComponent)
+        .join("/");
+
+    try {
+      const content = await blobToBase64(blob);
+      const res = await fetch(api, {
+        method: "PUT",
+        headers: {
+          Accept: "application/vnd.github+json",
+          Authorization: "Bearer " + token,
+          "Content-Type": "application/json",
+          "X-GitHub-Api-Version": "2022-11-28",
+        },
+        body: JSON.stringify({
+          message: "gallery: " + safeName,
+          content: content,
+          branch: "main",
+        }),
+      });
+      if (!res.ok) {
+        let detail = "HTTP " + res.status;
+        try {
+          const err = await res.json();
+          if (err && err.message) detail = String(err.message).slice(0, 160);
+        } catch (e) {}
+        // never echo token
+        setStatus("存入仓库失败: " + detail, "err");
+        return false;
+      }
+      setStatus("已存入仓库 · " + path, "ok");
+      return true;
+    } catch (e) {
+      const msg = e && e.message ? e.message : String(e);
+      setStatus("存入仓库失败: " + msg.slice(0, 160), "err");
+      return false;
+    }
+  }
+
+
   function downloadBlob(blob, filename) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -584,6 +754,7 @@
             steps: null,
             createdAt: Date.now() - (items.length - i),
           });
+          await maybeUploadToGithub(blob, filename);
           have[filename] = true;
           lastBlobLocal = blob;
           lastName = filename;
@@ -872,6 +1043,8 @@
       }
 
       let lastSeed = baseSeed;
+      let ghOk = 0;
+      let ghFail = 0;
       for (let n = 0; n < batch; n++) {
         if (cancelRequested) {
           setStatus("已取消 · 完成 " + n + "/" + batch, "err");
@@ -925,11 +1098,31 @@
           steps,
           createdAt: Date.now(),
         });
+        const up = await maybeUploadToGithub(blob, filename);
+        if ($("chkSaveGithub") && $("chkSaveGithub").checked) {
+          if (up) ghOk++;
+          else ghFail++;
+        }
       }
-      setStatus(
-        "完成 · " + batch + " 张已存图库 · 种子 " + baseSeed + (batch > 1 ? "～" + lastSeed : ""),
-        "ok"
-      );
+      let doneMsg =
+        "完成 · " +
+        batch +
+        " 张已存图库 · 种子 " +
+        baseSeed +
+        (batch > 1 ? "～" + lastSeed : "");
+      let doneKind = "ok";
+      if (ghOk || ghFail) {
+        if (ghFail === 0) {
+          doneMsg += " · 已存入仓库 " + ghOk + " 张";
+        } else if (ghOk === 0) {
+          doneMsg += " · 存入仓库失败";
+          doneKind = "err";
+        } else {
+          doneMsg += " · 仓库 " + ghOk + " 成功 / " + ghFail + " 失败";
+          doneKind = "err";
+        }
+      }
+      setStatus(doneMsg, doneKind);
     } catch (e) {
       console.error(e);
       setStatus("失败: " + (e && e.message ? e.message : String(e)), "err");
@@ -990,6 +1183,19 @@
     $("lightbox").addEventListener("click", (ev) => {
       if (ev.target === $("lightbox")) closeLightbox();
     });
+
+    loadGhSettings();
+    if ($("chkSaveGithub")) {
+      $("chkSaveGithub").addEventListener("change", persistGhSettings);
+    }
+    if ($("ghToken")) {
+      $("ghToken").addEventListener("change", persistGhSettings);
+      $("ghToken").addEventListener("blur", persistGhSettings);
+    }
+    if ($("ghRepo")) {
+      $("ghRepo").addEventListener("change", persistGhSettings);
+      $("ghRepo").addEventListener("blur", persistGhSettings);
+    }
 
     renderGallery();
   }
