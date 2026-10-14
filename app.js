@@ -1169,6 +1169,134 @@
     }
   }
 
+
+  function getStartApiBase() {
+    const el = $("startApiUrl");
+    const raw = ((el && el.value) || "").trim().replace(/\/+$/, "");
+    return raw;
+  }
+
+  function requireStartApiBase() {
+    const base = getStartApiBase();
+    if (!base) {
+      throw new Error("请先填写启动接口地址（AutoDL 6008 公网）");
+    }
+    try {
+      const u = new URL(base);
+      if (u.protocol !== "http:" && u.protocol !== "https:") {
+        throw new Error("启动接口地址需以 http:// 或 https:// 开头");
+      }
+    } catch (e) {
+      if (e && e.message && /启动接口|http/.test(e.message)) throw e;
+      throw new Error("启动接口地址无效");
+    }
+    return base;
+  }
+
+  async function sleep(ms) {
+    return new Promise((r) => setTimeout(r, ms));
+  }
+
+  /** POST /start on start API, then poll Comfy /system_stats until up or timeout. */
+  async function startComfyViaApi() {
+    let apiBase;
+    try {
+      apiBase = requireStartApiBase();
+    } catch (e) {
+      setConnStatus("失败: " + e.message, "err");
+      return false;
+    }
+    localStorage.setItem("comfy_phone_start_api", apiBase);
+
+    // Persist comfy URL too if present
+    try {
+      const comfyBase = getBase();
+      if (comfyBase) localStorage.setItem("comfy_phone_base", comfyBase);
+    } catch (e) {}
+
+    setConnStatus("正在请求启动接口…", "run");
+    let startJson = null;
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 90000);
+      const res = await fetch(apiBase + "/start", {
+        method: "POST",
+        mode: "cors",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+        signal: ctrl.signal,
+      });
+      clearTimeout(t);
+      startJson = await res.json().catch(() => ({}));
+      if (!res.ok && !(startJson && startJson.ok)) {
+        const msg =
+          (startJson && startJson.message) || "HTTP " + res.status;
+        setConnStatus("拉起失败: " + msg, "err");
+        return false;
+      }
+    } catch (e) {
+      const msg = e && e.name === "AbortError" ? "启动接口超时" : (e && e.message ? e.message : String(e));
+      const corsHint =
+        /Failed to fetch|NetworkError|CORS|cross-origin/i.test(msg) ||
+        msg === "Failed to fetch"
+          ? "（检查 6008 公网与 CORS；接口需已开机运行）"
+          : "";
+      setConnStatus("拉起失败: " + msg + corsHint, "err");
+      return false;
+    }
+
+    if (startJson && startJson.already) {
+      setConnStatus("Comfy 已在运行 · 正在检测…", "run");
+    } else {
+      setConnStatus(
+        (startJson && startJson.message) || "已请求拉起 · 等待 Comfy…",
+        "run"
+      );
+    }
+
+    // Poll Comfy public URL
+    let comfyBase = "";
+    try {
+      comfyBase = getBase();
+    } catch (e) {}
+    if (!comfyBase) {
+      setConnStatus(
+        "启动接口已响应，但未填 Comfy 公网地址（步骤 2）— 请填 6006 公网后点检测",
+        startJson && startJson.ok ? "ok" : "err"
+      );
+      return !!(startJson && startJson.ok);
+    }
+
+    const deadline = Date.now() + 90000;
+    let attempt = 0;
+    while (Date.now() < deadline) {
+      attempt += 1;
+      setConnStatus("等待 Comfy 就绪… (" + attempt + ")", "run");
+      try {
+        const res = await fetch(comfyBase + "/system_stats", {
+          method: "GET",
+          mode: "cors",
+        });
+        if (res.ok) {
+          const ok = await connectComfy();
+          if (ok) {
+            // connectComfy already set detailed status
+            return true;
+          }
+        }
+      } catch (e) {
+        /* keep polling */
+      }
+      await sleep(2500);
+    }
+    setConnStatus(
+      "启动接口已调用，但 Comfy 公网仍未连通（超时）。可再点检测或打开 ComfyUI。",
+      "err"
+    );
+    return false;
+  }
+
+
   function initDefaults() {
     const W = window.ComfyPhoneWorkflow;
     if (W && !$("negative").value) $("negative").value = W.DEFAULT_NEG;
@@ -1181,6 +1309,10 @@
     if (saved) {
       if ($("baseUrl") && !$("baseUrl").value) $("baseUrl").value = saved;
       if ($("bootUrl") && !$("bootUrl").value) $("bootUrl").value = saved;
+    }
+    const savedApi = localStorage.getItem("comfy_phone_start_api");
+    if (savedApi && $("startApiUrl") && !$("startApiUrl").value) {
+      $("startApiUrl").value = savedApi;
     }
 
     function persistBaseFrom(id) {
@@ -1237,6 +1369,33 @@
         }
         localStorage.setItem("comfy_phone_base", base);
         window.open(base, "_blank", "noopener,noreferrer");
+      });
+    }
+
+    if ($("startApiUrl")) {
+      const persistApi = () => {
+        const v = getStartApiBase();
+        if (v) localStorage.setItem("comfy_phone_start_api", v);
+      };
+      $("startApiUrl").addEventListener("change", persistApi);
+      $("startApiUrl").addEventListener("blur", persistApi);
+    }
+
+    if ($("btnStartComfy")) {
+      $("btnStartComfy").addEventListener("click", () => {
+        syncUrlFields("bootUrl");
+        const btn = $("btnStartComfy");
+        if (btn) btn.disabled = true;
+        startComfyViaApi()
+          .catch((e) => {
+            setConnStatus(
+              "失败: " + (e && e.message ? e.message : String(e)),
+              "err"
+            );
+          })
+          .finally(() => {
+            if (btn) btn.disabled = false;
+          });
       });
     }
 

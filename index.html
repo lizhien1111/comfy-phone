@@ -487,9 +487,21 @@
       </div>
 
       <div class="boot-step">
-        <h2>步骤 3 · 打开 ComfyUI</h2>
-        <p>用上面的地址打开 Comfy，或先检测能否连通。</p>
+        <h2>步骤 3 · 打开 / 拉起 ComfyUI</h2>
+        <p>用上面的 Comfy 公网地址打开或检测。若实例已挂启动接口（6008），填下方地址后可一键拉起。</p>
+        <label for="startApiUrl">启动接口地址（可选，6008 公网）</label>
+        <input
+          id="startApiUrl"
+          type="text"
+          inputmode="url"
+          autocomplete="url"
+          placeholder="https://u….seetacloud.com（6008 映射的公网）"
+        />
+        <p class="hint" style="margin:6px 0 10px;font-size:0.82rem;opacity:0.85">
+          AutoDL 把 <strong>6008</strong> 也开公网，把该公网地址填到这里；点「拉起 Comfy」即可（与 6006 的 Comfy 地址通常不同）。
+        </p>
         <div class="boot-actions">
+          <button type="button" class="btn btn-primary" id="btnStartComfy">拉起 Comfy</button>
           <button type="button" class="btn btn-ghost" id="btnOpenComfy">打开 ComfyUI</button>
           <button type="button" class="btn btn-ghost" id="btnBootConnect">检测连接</button>
         </div>
