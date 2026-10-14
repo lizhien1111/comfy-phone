@@ -37,7 +37,7 @@
     .wrap {
       max-width: 560px;
       margin: 0 auto;
-      padding: 16px 16px calc(24px + env(safe-area-inset-bottom));
+      padding: 16px 16px calc(88px + env(safe-area-inset-bottom));
     }
     h1 {
       font-size: 1.25rem;
@@ -260,6 +260,58 @@
       font-size: 0.85rem;
       flex: 1 1 auto;
     }
+
+
+    .upload-banner {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 9999;
+      padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+      background: rgba(15, 17, 21, 0.94);
+      border-top: 1px solid var(--border);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      box-shadow: 0 -8px 24px rgba(0,0,0,0.35);
+    }
+    .upload-banner[hidden] { display: none !important; }
+    .upload-banner-inner { max-width: 560px; margin: 0 auto; }
+    .upload-banner-text {
+      font-size: 0.88rem;
+      color: var(--run);
+      word-break: break-word;
+      margin-bottom: 8px;
+    }
+    .upload-banner--ok .upload-banner-text { color: var(--ok); }
+    .upload-banner--err .upload-banner-text { color: var(--err); }
+    .upload-banner-bar {
+      height: 6px;
+      border-radius: 99px;
+      background: #2a2f3a;
+      overflow: hidden;
+      margin-bottom: 8px;
+    }
+    .upload-banner-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--accent), #8aa4ff);
+      transition: width 0.25s ease;
+    }
+    .upload-banner--ok .upload-banner-fill { background: var(--ok); }
+    .upload-banner--err .upload-banner-fill { background: var(--err); }
+    .upload-banner-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .upload-banner-link {
+      color: var(--accent);
+      font-size: 0.8rem;
+      text-decoration: none;
+    }
+
 
     .gallery-item img {
       width: 100%;
@@ -655,6 +707,9 @@
       本页可放任意静态托管；填 AutoDL/Comfy 公网地址（不要加端口）后点「连接」。
       跨域常被 CORS 拦：需 Comfy 开 CORS（如 --enable-cors-header）、或用 nginx / Cloudflare Worker / 本目录 <code>cors_proxy.py</code> 同源反代。
       生成显示「出图中 x/y 步」；图在本机浏览器，清缓存会丢；实例关机前 Comfy output 也有原图。
+      「存入仓库」会排队上传，切到抖音等 App 回来会自动继续，底部进度条常显；登录 GitHub 打开
+      <a href="https://github.com/lizhien1111/comfy-phone-gallery" target="_blank" rel="noopener">comfy-phone-gallery</a>
+      的 README 或 <code>gallery/</code> 下的 png 即可看图。
     </p>
     </section>
   </div>
@@ -670,9 +725,9 @@
     <div class="lightbox-info" id="lightboxInfo"></div>
   </div>
 
-  <script src="workflow.js?v=60a37b4"></script>
-  <script src="gallery.js?v=60a37b4"></script>
-  <script src="app.js?v=60a37b4"></script>
+  <script src="workflow.js?v=bgup-20261014"></script>
+  <script src="gallery.js?v=bgup-20261014"></script>
+  <script src="app.js?v=bgup-20261014"></script>
 
   <script>
     function googleTranslateElementInit() {

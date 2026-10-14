@@ -25,6 +25,14 @@
   let lightboxUrl = null;
   let lightboxItem = null;
 
+  /** Durable GitHub upload queue pump */
+  let uploadPumpRunning = false;
+  let uploadBannerHideTimer = null;
+  let uploadSessionDone = 0;
+  let uploadSessionFail = 0;
+  let uploadSessionTotal = 0;
+  let lastUploadedPaths = [];
+
   let connectedOk = false;
   let cancelRequested = false;
 
@@ -529,15 +537,453 @@
     }
   }
 
+  function getGhToken() {
+    return (
+      (($("ghToken") && $("ghToken").value) ||
+        localStorage.getItem(LS_GH_TOKEN) ||
+        "")
+    ).trim();
+  }
+
+  function getGhRepo() {
+    let repo = (
+      ($("ghRepo") && $("ghRepo").value) ||
+      localStorage.getItem(LS_GH_REPO) ||
+      DEFAULT_GH_REPO
+    ).trim();
+    if (!repo) repo = DEFAULT_GH_REPO;
+    return repo;
+  }
+
+  function ensureUploadBanner() {
+    let el = $("uploadBanner");
+    if (el) return el;
+    el = document.createElement("div");
+    el.id = "uploadBanner";
+    el.className = "upload-banner";
+    el.hidden = true;
+    el.innerHTML =
+      '<div class="upload-banner-inner">' +
+      '<div class="upload-banner-text" id="uploadBannerText">存入仓库</div>' +
+      '<div class="upload-banner-bar"><div class="upload-banner-fill" id="uploadBannerFill"></div></div>' +
+      '<div class="upload-banner-actions">' +
+      '<button type="button" class="btn btn-ghost" id="btnUploadRetry" hidden style="min-height:36px;padding:0 10px;font-size:0.8rem;width:auto;margin:0">重试失败</button>' +
+      '<a class="upload-banner-link" id="uploadBannerLink" href="https://github.com/lizhien1111/comfy-phone-gallery" target="_blank" rel="noopener">在 GitHub 看图</a>' +
+      "</div></div>";
+    document.body.appendChild(el);
+    const retry = $("btnUploadRetry");
+    if (retry) {
+      retry.addEventListener("click", () => {
+        const G = window.ComfyPhoneGallery;
+        if (!G) return;
+        G.retryFailedUploads()
+          .then(() => kickUploadPump())
+          .catch((e) => console.error(e));
+      });
+    }
+    return el;
+  }
+
+  function updateUploadBanner(state) {
+    const el = ensureUploadBanner();
+    const textEl = $("uploadBannerText");
+    const fill = $("uploadBannerFill");
+    const retry = $("btnUploadRetry");
+    const pending = state.pending || 0;
+    const uploading = state.uploading || 0;
+    const errors = state.errors || 0;
+    const current = state.currentName || "";
+    const done = state.done || 0;
+    const total = state.total || 0;
+    const active = pending + uploading + errors > 0;
+    if (!active && done === 0) {
+      el.hidden = true;
+      return;
+    }
+    el.hidden = false;
+    el.classList.toggle("upload-banner--err", errors > 0 && pending + uploading === 0);
+    el.classList.toggle("upload-banner--ok", !active && errors === 0 && done > 0);
+    let msg;
+    if (uploading || pending) {
+      const finished = Math.max(0, total - pending - uploading);
+      msg =
+        "存入仓库 " +
+        finished +
+        "/" +
+        total +
+        (current ? " · " + current : "") +
+        (document.hidden ? " · 后台排队中" : " · 上传中");
+      if (errors) msg += " · 失败 " + errors;
+    } else if (errors) {
+      msg = "存入仓库完成：成功 " + done + " · 失败 " + errors + "（可点重试）";
+    } else {
+      msg = "已存入仓库 " + done + " 张 · 可在 GitHub 仓库 README 看图";
+    }
+    if (textEl) textEl.textContent = msg;
+    if (fill) {
+      const pct = total > 0 ? Math.round(((total - pending - uploading) / total) * 100) : 0;
+      fill.style.width = Math.max(0, Math.min(100, pct)) + "%";
+    }
+    if (retry) retry.hidden = !(errors > 0 && pending + uploading === 0);
+    if (!active && errors === 0) {
+      if (uploadBannerHideTimer) clearTimeout(uploadBannerHideTimer);
+      uploadBannerHideTimer = setTimeout(() => {
+        if (el && !uploadPumpRunning) el.hidden = true;
+      }, 8000);
+    } else if (uploadBannerHideTimer) {
+      clearTimeout(uploadBannerHideTimer);
+      uploadBannerHideTimer = null;
+    }
+  }
+
+  async function refreshUploadBannerFromDb() {
+    const G = window.ComfyPhoneGallery;
+    if (!G || !G.listUploads) return;
+    const all = await G.listUploads();
+    const pending = all.filter((x) => x.status === "pending").length;
+    const uploading = all.filter((x) => x.status === "uploading").length;
+    const errors = all.filter((x) => x.status === "error").length;
+    const cur = all.find((x) => x.status === "uploading");
+    const total =
+      uploadSessionTotal ||
+      pending + uploading + errors + uploadSessionDone;
+    updateUploadBanner({
+      pending,
+      uploading,
+      errors,
+      currentName: cur ? cur.filename : "",
+      done: uploadSessionDone,
+      total,
+    });
+  }
+
   /**
-   * Upload blob to private gallery repo via Contents API.
-   * Returns true on success, false if skipped or failed (status already set on fail).
+   * Enqueue blob(s) for durable GitHub upload. Survives app switch via IndexedDB.
+   * Returns number enqueued (0 if skipped / no token).
+   */
+  async function enqueueGithubUploads(items, { requireTokenUi } = {}) {
+    const G = window.ComfyPhoneGallery;
+    if (!G || !G.enqueueUpload) return 0;
+    const list = (items || []).filter((x) => x && x.blob);
+    if (!list.length) return 0;
+    const tok = getGhToken();
+    if (!tok) {
+      if (requireTokenUi) {
+        const chk = $("chkSaveGithub");
+        if (chk) chk.checked = true;
+        syncGhSettingsUi();
+        setStatus("请先填写 GitHub Token，再点存入仓库", "err");
+      }
+      return 0;
+    }
+    persistGhSettings();
+    let n = 0;
+    for (const it of list) {
+      await G.enqueueUpload({
+        blob: it.blob,
+        filename: it.filename || "comfy_phone.png",
+        galleryId: it.id || it.galleryId || null,
+      });
+      n++;
+    }
+    uploadSessionTotal += n;
+    await refreshUploadBannerFromDb();
+    kickUploadPump();
+    return n;
+  }
+
+  /**
+   * When auto-save checkbox on: queue upload (non-blocking). Returns true if queued.
    */
   async function maybeUploadToGithub(blob, filename) {
     const chk = $("chkSaveGithub");
     if (!chk || !chk.checked) return false;
-    return uploadBlobToGithub(blob, filename, { quiet: false });
+    const n = await enqueueGithubUploads([{ blob, filename }], { requireTokenUi: true });
+    return n > 0;
   }
+
+  async function uploadBlobToGithubWithMeta(blob, filename) {
+    // Same as uploadBlobToGithub but returns {ok, path, error}
+    if (!blob) return { ok: false, error: "no blob" };
+    const token = getGhToken();
+    if (!token) return { ok: false, error: "no token" };
+    let repo = getGhRepo();
+    const parts = repo.split("/");
+    if (parts.length !== 2 || !parts[0] || !parts[1]) {
+      return { ok: false, error: "仓库名无效" };
+    }
+    const owner = parts[0];
+    const repoName = parts[1];
+    const safeName = sanitizeFilename(filename);
+    const ts = Date.now();
+    const day = galleryDatePath(new Date());
+    const path = "gallery/" + day + "/" + ts + "-" + safeName;
+    const api =
+      "https://api.github.com/repos/" +
+      encodeURIComponent(owner) +
+      "/" +
+      encodeURIComponent(repoName) +
+      "/contents/" +
+      path
+        .split("/")
+        .map(encodeURIComponent)
+        .join("/");
+    try {
+      const content = await blobToBase64(blob);
+      const res = await fetch(api, {
+        method: "PUT",
+        headers: {
+          Accept: "application/vnd.github+json",
+          Authorization: "Bearer " + token,
+          "Content-Type": "application/json",
+          "X-GitHub-Api-Version": "2022-11-28",
+        },
+        body: JSON.stringify({
+          message: "gallery: " + safeName,
+          content: content,
+          branch: "main",
+        }),
+      });
+      if (!res.ok) {
+        let detail = "HTTP " + res.status;
+        try {
+          const err = await res.json();
+          if (err && err.message) detail = String(err.message).slice(0, 160);
+        } catch (e) {}
+        return { ok: false, error: detail, path };
+      }
+      return { ok: true, path };
+    } catch (e) {
+      const msg = e && e.message ? e.message : String(e);
+      return { ok: false, error: msg.slice(0, 160) };
+    }
+  }
+
+  async function putGithubFile(path, textContent, message) {
+    const token = getGhToken();
+    if (!token) return false;
+    const repo = getGhRepo();
+    const parts = repo.split("/");
+    if (parts.length !== 2) return false;
+    const owner = parts[0];
+    const repoName = parts[1];
+    const api =
+      "https://api.github.com/repos/" +
+      encodeURIComponent(owner) +
+      "/" +
+      encodeURIComponent(repoName) +
+      "/contents/" +
+      path
+        .split("/")
+        .map(encodeURIComponent)
+        .join("/");
+    let sha = null;
+    try {
+      const getRes = await fetch(api + "?ref=main", {
+        headers: {
+          Accept: "application/vnd.github+json",
+          Authorization: "Bearer " + token,
+          "X-GitHub-Api-Version": "2022-11-28",
+        },
+      });
+      if (getRes.ok) {
+        const j = await getRes.json();
+        sha = j && j.sha;
+      }
+    } catch (e) {}
+    const body = {
+      message: message || ("update " + path),
+      content: btoa(unescape(encodeURIComponent(textContent))),
+      branch: "main",
+    };
+    if (sha) body.sha = sha;
+    const res = await fetch(api, {
+      method: "PUT",
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: "Bearer " + token,
+        "Content-Type": "application/json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+      body: JSON.stringify(body),
+    });
+    return res.ok;
+  }
+
+  async function refreshGalleryReadmeIndex() {
+    const token = getGhToken();
+    if (!token) return;
+    const repo = getGhRepo();
+    const parts = repo.split("/");
+    if (parts.length !== 2) return;
+    const owner = parts[0];
+    const repoName = parts[1];
+    try {
+      const treeRes = await fetch(
+        "https://api.github.com/repos/" +
+          encodeURIComponent(owner) +
+          "/" +
+          encodeURIComponent(repoName) +
+          "/git/trees/main?recursive=1",
+        {
+          headers: {
+            Accept: "application/vnd.github+json",
+            Authorization: "Bearer " + token,
+            "X-GitHub-Api-Version": "2022-11-28",
+          },
+        }
+      );
+      if (!treeRes.ok) return;
+      const tree = await treeRes.json();
+      const pngs = (tree.tree || [])
+        .filter((t) => t.type === "blob" && /\.png$/i.test(t.path || ""))
+        .map((t) => t.path)
+        .sort()
+        .reverse();
+      const latest = pngs.slice(0, 40);
+      const lines = [];
+      lines.push("# comfy-phone-gallery");
+      lines.push("");
+      lines.push(
+        "手机出图私有图库（从 [comfy-phone](https://lizhien1111.github.io/comfy-phone/) 上传）。"
+      );
+      lines.push("");
+      lines.push("## 怎么看图");
+      lines.push("");
+      lines.push("1. 用浏览器登录 GitHub 后打开本仓库。");
+      lines.push("2. 下面「最近出图」可直接预览；也可点开 `gallery/日期/` 里的 `.png` 文件看大图。");
+      lines.push("3. 私有仓库：必须登录后才能看到图片。");
+      lines.push("");
+      lines.push("## 最近出图");
+      lines.push("");
+      if (!latest.length) {
+        lines.push("_还没有图片_");
+      } else {
+        lines.push("共 **" + pngs.length + "** 张 · 展示最近 " + latest.length + " 张：");
+        lines.push("");
+        for (const p of latest) {
+          const name = p.split("/").pop();
+          lines.push("### `" + name + "`");
+          lines.push("");
+          lines.push("![](" + p + ")");
+          lines.push("");
+          lines.push("[打开文件](" + p + ")");
+          lines.push("");
+        }
+      }
+      lines.push("---");
+      lines.push("");
+      lines.push("目录：`gallery/YYYY-MM-DD/{timestamp}-{filename}.png`");
+      lines.push("");
+      await putGithubFile(
+        "README.md",
+        lines.join("\n"),
+        "docs: refresh gallery README previews (" + latest.length + " images)"
+      );
+    } catch (e) {
+      console.warn("readme refresh failed", e);
+    }
+  }
+
+  async function kickUploadPump() {
+    const G = window.ComfyPhoneGallery;
+    if (!G || !G.listUploads) return;
+    if (uploadPumpRunning) {
+      await refreshUploadBannerFromDb();
+      return;
+    }
+    uploadPumpRunning = true;
+    ensureUploadBanner();
+    try {
+      await G.resetStuckUploads();
+      while (true) {
+        const all = await G.listUploads();
+        const pending = all.filter((x) => x.status === "pending");
+        const uploading = all.filter((x) => x.status === "uploading");
+        const errors = all.filter((x) => x.status === "error");
+        const total =
+          uploadSessionTotal ||
+          pending.length + uploading.length + errors.length + uploadSessionDone;
+        updateUploadBanner({
+          pending: pending.length,
+          uploading: uploading.length,
+          errors: errors.length,
+          currentName: uploading[0] ? uploading[0].filename : pending[0] ? pending[0].filename : "",
+          done: uploadSessionDone,
+          total,
+        });
+        if (!pending.length) break;
+        if (!getGhToken()) {
+          setStatus("上传暂停：缺少 GitHub Token", "err");
+          break;
+        }
+        const job = pending[0];
+        await G.updateUpload(job.id, {
+          status: "uploading",
+          attempts: (job.attempts || 0) + 1,
+          error: null,
+        });
+        await refreshUploadBannerFromDb();
+        const result = await uploadBlobToGithubWithMeta(
+          job.blob,
+          job.filename || "comfy_phone.png"
+        );
+        if (result.ok) {
+          if (result.path) lastUploadedPaths.push(result.path);
+          await G.deleteUpload(job.id);
+          uploadSessionDone++;
+          uploadSessionFail = Math.max(0, uploadSessionFail);
+        } else {
+          await G.updateUpload(job.id, {
+            status: "error",
+            error: result.error || "upload failed",
+          });
+          uploadSessionFail++;
+        }
+        // brief yield so UI paints; also friendlier to GitHub rate limits
+        await new Promise((r) => setTimeout(r, 180));
+      }
+      const left = await G.listUploads();
+      const errLeft = left.filter((x) => x.status === "error").length;
+      const pendLeft = left.filter((x) => x.status === "pending" || x.status === "uploading").length;
+      await refreshUploadBannerFromDb();
+      if (!pendLeft && uploadSessionDone > 0) {
+        // Refresh README so images show on github.com when logged in
+        await refreshGalleryReadmeIndex();
+        if (errLeft === 0) {
+          setStatus(
+            "已存入仓库 " +
+              uploadSessionDone +
+              " 张 · 打开 GitHub 仓库 README 可看图",
+            "ok"
+          );
+        } else {
+          setStatus(
+            "仓库上传：成功 " + uploadSessionDone + " / 失败 " + errLeft,
+            "err"
+          );
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      uploadPumpRunning = false;
+      await refreshUploadBannerFromDb();
+    }
+  }
+
+  function bindUploadResumeHooks() {
+    const kick = () => {
+      kickUploadPump().catch((e) => console.error(e));
+    };
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) kick();
+    });
+    window.addEventListener("pageshow", kick);
+    window.addEventListener("online", kick);
+    window.addEventListener("focus", kick);
+  }
+
 
 
   function downloadBlob(blob, filename) {
@@ -689,26 +1135,15 @@
       setStatus("请先勾选图库里的图片", "err");
       return;
     }
-    // ensure token UI visible if empty
-    const tok = (($("ghToken") && $("ghToken").value) || localStorage.getItem(LS_GH_TOKEN) || "").trim();
-    if (!tok) {
-      const chk = $("chkSaveGithub");
-      if (chk) chk.checked = true;
-      syncGhSettingsUi();
-      setStatus("请先填写 GitHub Token，再点存入仓库", "err");
-      return;
-    }
-    setStatus("正在上传 " + items.length + " 张到仓库…", "run");
-    let ok = 0;
-    let fail = 0;
-    for (const item of items) {
-      const r = await uploadBlobToGithub(item.blob, item.filename || "comfy_phone.png", { quiet: true });
-      if (r) ok++;
-      else fail++;
-      await new Promise((r) => setTimeout(r, 200));
-    }
-    if (fail === 0) setStatus("已存入仓库 " + ok + " 张", "ok");
-    else setStatus("仓库上传：成功 " + ok + " / 失败 " + fail, "err");
+    uploadSessionDone = 0;
+    uploadSessionFail = 0;
+    uploadSessionTotal = 0;
+    const n = await enqueueGithubUploads(items, { requireTokenUi: true });
+    if (!n) return;
+    setStatus(
+      "已加入上传队列 " + n + " 张（可切到别的 App，回来会继续）",
+      "run"
+    );
   }
 
 
@@ -1235,12 +1670,12 @@
       let doneKind = "ok";
       if (ghOk || ghFail) {
         if (ghFail === 0) {
-          doneMsg += " · 已存入仓库 " + ghOk + " 张";
+          doneMsg += " · 已加入上传队列 " + ghOk + " 张";
         } else if (ghOk === 0) {
-          doneMsg += " · 存入仓库失败";
+          doneMsg += " · 存入仓库未排队（检查 Token）";
           doneKind = "err";
         } else {
-          doneMsg += " · 仓库 " + ghOk + " 成功 / " + ghFail + " 失败";
+          doneMsg += " · 队列 " + ghOk + " · 跳过 " + ghFail;
           doneKind = "err";
         }
       }
@@ -1557,6 +1992,11 @@
       $("ghRepo").addEventListener("change", persistGhSettings);
       $("ghRepo").addEventListener("blur", persistGhSettings);
     }
+
+    ensureUploadBanner();
+    bindUploadResumeHooks();
+    // Resume any leftover queue from last visit / app switch
+    kickUploadPump().catch((e) => console.error(e));
 
     renderGallery();
   }

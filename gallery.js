@@ -1,21 +1,27 @@
 /**
- * IndexedDB gallery for Comfy phone page.
- * Stores PNG blobs locally so reloads keep recent gens.
+ * IndexedDB gallery + durable GitHub upload queue for Comfy phone page.
+ * Upload queue keeps Blob copies so switching apps / reloading can resume.
  */
 (function (root) {
   const DB_NAME = "comfy_phone_gallery";
-  const DB_VER = 1;
+  const DB_VER = 2;
   const STORE = "images";
+  const UPLOAD_STORE = "uploads";
   const MAX_ITEMS = 60;
 
   function openDb() {
     return new Promise((resolve, reject) => {
       const req = indexedDB.open(DB_NAME, DB_VER);
-      req.onupgradeneeded = function () {
+      req.onupgradeneeded = function (ev) {
         const db = req.result;
         if (!db.objectStoreNames.contains(STORE)) {
           const os = db.createObjectStore(STORE, { keyPath: "id" });
           os.createIndex("createdAt", "createdAt", { unique: false });
+        }
+        if (!db.objectStoreNames.contains(UPLOAD_STORE)) {
+          const uos = db.createObjectStore(UPLOAD_STORE, { keyPath: "id" });
+          uos.createIndex("createdAt", "createdAt", { unique: false });
+          uos.createIndex("status", "status", { unique: false });
         }
       };
       req.onsuccess = () => resolve(req.result);
@@ -51,7 +57,6 @@
     tx.objectStore(STORE).put(item);
     await txDone(tx);
 
-    // Trim oldest if over cap
     const all = await listImages();
     if (all.length > MAX_ITEMS) {
       const drop = all.slice(MAX_ITEMS);
@@ -108,6 +113,115 @@
     db.close();
   }
 
+  async function enqueueUpload(record) {
+    if (!record || !record.blob) throw new Error("upload needs blob");
+    const db = await openDb();
+    const id =
+      record.id ||
+      "up_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
+    const item = {
+      id,
+      filename: record.filename || "comfy_phone.png",
+      blob: record.blob,
+      galleryId: record.galleryId || null,
+      status: "pending",
+      error: null,
+      attempts: record.attempts || 0,
+      bytes: record.blob.size || 0,
+      createdAt: record.createdAt || Date.now(),
+      updatedAt: Date.now(),
+    };
+    const tx = db.transaction(UPLOAD_STORE, "readwrite");
+    tx.objectStore(UPLOAD_STORE).put(item);
+    await txDone(tx);
+    db.close();
+    return item.id;
+  }
+
+  async function listUploads() {
+    const db = await openDb();
+    if (!db.objectStoreNames.contains(UPLOAD_STORE)) {
+      db.close();
+      return [];
+    }
+    const tx = db.transaction(UPLOAD_STORE, "readonly");
+    const req = tx.objectStore(UPLOAD_STORE).getAll();
+    const rows = await new Promise((resolve, reject) => {
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error);
+    });
+    await txDone(tx);
+    db.close();
+    rows.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+    return rows;
+  }
+
+  async function getUpload(id) {
+    const db = await openDb();
+    const tx = db.transaction(UPLOAD_STORE, "readonly");
+    const req = tx.objectStore(UPLOAD_STORE).get(id);
+    const row = await new Promise((resolve, reject) => {
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+    await txDone(tx);
+    db.close();
+    return row;
+  }
+
+  async function updateUpload(id, patch) {
+    const db = await openDb();
+    const tx = db.transaction(UPLOAD_STORE, "readwrite");
+    const os = tx.objectStore(UPLOAD_STORE);
+    const cur = await new Promise((resolve, reject) => {
+      const r = os.get(id);
+      r.onsuccess = () => resolve(r.result || null);
+      r.onerror = () => reject(r.error);
+    });
+    if (!cur) {
+      await txDone(tx);
+      db.close();
+      return null;
+    }
+    const next = Object.assign({}, cur, patch || {}, { updatedAt: Date.now() });
+    os.put(next);
+    await txDone(tx);
+    db.close();
+    return next;
+  }
+
+  async function deleteUpload(id) {
+    const db = await openDb();
+    const tx = db.transaction(UPLOAD_STORE, "readwrite");
+    tx.objectStore(UPLOAD_STORE).delete(id);
+    await txDone(tx);
+    db.close();
+  }
+
+  async function resetStuckUploads() {
+    const all = await listUploads();
+    let n = 0;
+    for (const u of all) {
+      if (u.status === "uploading") {
+        await updateUpload(u.id, { status: "pending", error: null });
+        n++;
+      }
+    }
+    return n;
+  }
+
+  async function retryFailedUploads() {
+    const all = await listUploads();
+    let n = 0;
+    for (const u of all) {
+      if (u.status === "error") {
+        await updateUpload(u.id, { status: "pending", error: null });
+        n++;
+      }
+    }
+    return n;
+  }
+
   root.ComfyPhoneGallery = {
     MAX_ITEMS,
     addImage,
@@ -115,5 +229,12 @@
     getImage,
     deleteImage,
     clearAll,
+    enqueueUpload,
+    listUploads,
+    getUpload,
+    updateUpload,
+    deleteUpload,
+    resetStuckUploads,
+    retryFailedUploads,
   };
 })(typeof window !== "undefined" ? window : globalThis);
