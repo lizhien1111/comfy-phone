@@ -27,7 +27,36 @@
   let cancelRequested = false;
 
   function getBase() {
-    return ($("baseUrl").value || "").trim().replace(/\/+$/, "");
+    const fromBase = ($("baseUrl") && $("baseUrl").value) || "";
+    const fromBoot = ($("bootUrl") && $("bootUrl").value) || "";
+    const raw = (fromBase || fromBoot || "").trim().replace(/\/+$/, "");
+    return raw;
+  }
+
+  function syncUrlFields(fromId) {
+    const src = $(fromId);
+    if (!src) return;
+    const v = (src.value || "").trim();
+    if ($("baseUrl") && fromId !== "baseUrl") $("baseUrl").value = v;
+    if ($("bootUrl") && fromId !== "bootUrl") $("bootUrl").value = v;
+  }
+
+  function showPage(which) {
+    const boot = $("pageBoot");
+    const app = $("pageApp");
+    if (!boot || !app) return;
+    const goApp = which === "app";
+    boot.hidden = goApp;
+    app.hidden = !goApp;
+    try {
+      localStorage.setItem("comfy_phone_page", goApp ? "app" : "boot");
+    } catch (e) {}
+    if (goApp) {
+      // ensure gallery renders when first entering app
+      try {
+        if (typeof renderGallery === "function") renderGallery();
+      } catch (e) {}
+    }
   }
 
   function requireBase() {
@@ -67,10 +96,17 @@
   }
 
   function setConnStatus(text, kind) {
+    const cls = "conn" + (kind ? " conn--" + kind : "");
     const el = $("connStatus");
-    if (!el) return;
-    el.textContent = text;
-    el.className = "conn" + (kind ? " conn--" + kind : "");
+    if (el) {
+      el.textContent = text;
+      el.className = cls;
+    }
+    const boot = $("bootConnStatus");
+    if (boot) {
+      boot.textContent = text;
+      boot.className = cls;
+    }
   }
 
   async function connectComfy() {
@@ -1142,25 +1178,102 @@
     $("height").value = $("height").value || 2560;
 
     const saved = localStorage.getItem("comfy_phone_base");
-    if (saved && !$("baseUrl").value) $("baseUrl").value = saved;
-    const persistBase = () => {
-      const v = ($("baseUrl").value || "").trim().replace(/\/+$/, "");
+    if (saved) {
+      if ($("baseUrl") && !$("baseUrl").value) $("baseUrl").value = saved;
+      if ($("bootUrl") && !$("bootUrl").value) $("bootUrl").value = saved;
+    }
+
+    function persistBaseFrom(id) {
+      syncUrlFields(id);
+      const v = getBase();
       if (v) localStorage.setItem("comfy_phone_base", v);
       connectedOk = false;
       setConnStatus("未连接 · 地址已改，请重新点连接", "");
-    };
-    $("baseUrl").addEventListener("change", persistBase);
-    $("baseUrl").addEventListener("blur", () => {
-      const v = ($("baseUrl").value || "").trim().replace(/\/+$/, "");
-      if (v) localStorage.setItem("comfy_phone_base", v);
-    });
+    }
 
-    $("btnConnect").addEventListener("click", () => {
-      setConnStatus("连接中…", "run");
-      connectComfy().catch((e) => {
-        setConnStatus("失败: " + (e && e.message ? e.message : String(e)), "err");
+    function wireUrlField(id) {
+      const el = $(id);
+      if (!el) return;
+      el.addEventListener("input", () => syncUrlFields(id));
+      el.addEventListener("change", () => persistBaseFrom(id));
+      el.addEventListener("blur", () => {
+        syncUrlFields(id);
+        const v = getBase();
+        if (v) localStorage.setItem("comfy_phone_base", v);
       });
-    });
+    }
+    wireUrlField("baseUrl");
+    wireUrlField("bootUrl");
+
+    if ($("btnConnect")) {
+      $("btnConnect").addEventListener("click", () => {
+        syncUrlFields("baseUrl");
+        setConnStatus("连接中…", "run");
+        connectComfy().catch((e) => {
+          setConnStatus("失败: " + (e && e.message ? e.message : String(e)), "err");
+        });
+      });
+    }
+
+    if ($("btnBootConnect")) {
+      $("btnBootConnect").addEventListener("click", () => {
+        syncUrlFields("bootUrl");
+        setConnStatus("连接中…", "run");
+        connectComfy().catch((e) => {
+          setConnStatus("失败: " + (e && e.message ? e.message : String(e)), "err");
+        });
+      });
+    }
+
+    if ($("btnOpenComfy")) {
+      $("btnOpenComfy").addEventListener("click", () => {
+        syncUrlFields("bootUrl");
+        let base;
+        try {
+          base = requireBase();
+        } catch (e) {
+          setConnStatus("失败: " + e.message, "err");
+          return;
+        }
+        localStorage.setItem("comfy_phone_base", base);
+        window.open(base, "_blank", "noopener,noreferrer");
+      });
+    }
+
+    async function enterApp(opts) {
+      opts = opts || {};
+      syncUrlFields($("bootUrl") && $("bootUrl").value ? "bootUrl" : "baseUrl");
+      const hasUrl = !!getBase();
+      if (hasUrl && !opts.skipConnect) {
+        setConnStatus("连接中…", "run");
+        try {
+          await connectComfy();
+        } catch (e) {
+          setConnStatus("失败: " + (e && e.message ? e.message : String(e)), "err");
+        }
+      }
+      showPage("app");
+    }
+
+    if ($("btnEnterApp")) {
+      $("btnEnterApp").addEventListener("click", () => {
+        enterApp({ skipConnect: false }).catch(() => showPage("app"));
+      });
+    }
+    if ($("btnGalleryOnly")) {
+      $("btnGalleryOnly").addEventListener("click", () => {
+        enterApp({ skipConnect: true }).catch(() => showPage("app"));
+      });
+    }
+    if ($("btnChangeServer")) {
+      $("btnChangeServer").addEventListener("click", () => {
+        syncUrlFields("baseUrl");
+        showPage("boot");
+      });
+    }
+
+    // Always start on boot so user can reconnect / open Comfy
+    showPage("boot");
     $("btnGen").addEventListener("click", generate);
     if ($("btnCancel")) $("btnCancel").addEventListener("click", cancelTask);
     $("btnSave").addEventListener("click", saveImage);

@@ -383,6 +383,54 @@
     }
     input[type="password"]:focus { border-color: var(--accent); }
 
+
+    [hidden] { display: none !important; }
+    .page[hidden] { display: none !important; }
+
+    .boot-step {
+      margin-top: 14px;
+      padding: 14px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+    .boot-step h2 {
+      margin: 0 0 8px;
+      font-size: 1rem;
+      font-weight: 650;
+    }
+    .boot-step p {
+      margin: 0 0 12px;
+      color: var(--muted);
+      font-size: 0.85rem;
+      line-height: 1.5;
+    }
+    .boot-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .boot-actions .btn { min-height: 44px; flex: 1 1 auto; }
+    .boot-cta {
+      margin-top: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .boot-cta .btn-primary { margin-top: 0; }
+    .compact-connect {
+      margin-bottom: 4px;
+    }
+    .compact-connect .connect-row { margin-top: 0; }
+    .server-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+    .server-bar label { margin: 0; }
+
     /* hide Google chrome */
     #google_translate_element, .goog-te-banner-frame, .goog-te-balloon-frame { display: none !important; }
     body { top: 0 !important; }
@@ -409,22 +457,72 @@
         <option value="id">Indonesia</option>
       </select>
     </div>
-    <p class="sub">粘贴 Comfy 地址并连接 → 改提示词出图 → 自动进图库</p>
     <div id="google_translate_element" aria-hidden="true"></div>
 
-    <label for="baseUrl">服务器地址（必填）</label>
-    <div class="connect-row">
-      <input
-        id="baseUrl"
-        type="text"
-        inputmode="url"
-        autocomplete="url"
-        required
-        placeholder="https://u865025-xxxx.bjb1.seetacloud.com"
-      />
-      <button type="button" class="btn btn-ghost" id="btnConnect">连接</button>
+    <!-- ========== 启动页 ========== -->
+    <section class="page" id="pageBoot">
+      <h1 style="font-size:1.25rem;margin:4px 0 4px">启动 Comfy</h1>
+      <p class="sub">先开实例并拿到公网地址，再进出图</p>
+
+      <div class="boot-step">
+        <h2>步骤 1 · 开实例</h2>
+        <p>在 AutoDL / RunPod 等平台开机（有 GPU），本页不能替你开机。</p>
+        <div class="boot-actions">
+          <a class="btn btn-ghost" id="btnOpenAutodl" href="https://www.autodl.com/console/instance/list" target="_blank" rel="noopener noreferrer">打开 AutoDL</a>
+          <a class="btn btn-ghost" id="btnOpenRunpod" href="https://www.runpod.io/console/pods" target="_blank" rel="noopener noreferrer">打开 RunPod</a>
+        </div>
+      </div>
+
+      <div class="boot-step">
+        <h2>步骤 2 · 生成端口网址</h2>
+        <p>AutoDL：自定义服务开公网（常用 6006→443，地址不要加 :8443）。RunPod：用 Proxy / Public URL。</p>
+        <label for="bootUrl">公网地址</label>
+        <input
+          id="bootUrl"
+          type="text"
+          inputmode="url"
+          autocomplete="url"
+          placeholder="https://u865025-xxxx.bjb1.seetacloud.com"
+        />
+      </div>
+
+      <div class="boot-step">
+        <h2>步骤 3 · 打开 ComfyUI</h2>
+        <p>用上面的地址打开 Comfy，或先检测能否连通。</p>
+        <div class="boot-actions">
+          <button type="button" class="btn btn-ghost" id="btnOpenComfy">打开 ComfyUI</button>
+          <button type="button" class="btn btn-ghost" id="btnBootConnect">检测连接</button>
+        </div>
+        <div class="conn" id="bootConnStatus">未连接 · 粘贴公网地址后点检测</div>
+      </div>
+
+      <div class="boot-cta">
+        <button type="button" class="btn btn-primary" id="btnEnterApp">进入出图</button>
+        <button type="button" class="btn btn-ghost" id="btnGalleryOnly" style="width:100%">只看图库</button>
+      </div>
+    </section>
+
+    <!-- ========== 出图页 ========== -->
+    <section class="page" id="pageApp" hidden>
+    <p class="sub">改提示词出图 → 图进本机图库</p>
+
+    <div class="compact-connect">
+      <div class="server-bar">
+        <label for="baseUrl">服务器</label>
+        <button type="button" class="btn btn-ghost" id="btnChangeServer" style="min-height:36px;padding:0 12px;font-size:0.85rem">更换服务器</button>
+      </div>
+      <div class="connect-row">
+        <input
+          id="baseUrl"
+          type="text"
+          inputmode="url"
+          autocomplete="url"
+          placeholder="https://u865025-xxxx.bjb1.seetacloud.com"
+        />
+        <button type="button" class="btn btn-ghost" id="btnConnect">连接</button>
+      </div>
+      <div class="conn" id="connStatus">未连接 · 粘贴 Comfy 公网地址后点连接</div>
     </div>
-    <div class="conn" id="connStatus">未连接 · 粘贴 Comfy 公网地址后点连接</div>
 
     <label for="prompt">提示词</label>
     <textarea id="prompt" placeholder="描述你想生成的画面…"></textarea>
@@ -505,6 +603,7 @@
       跨域常被 CORS 拦：需 Comfy 开 CORS（如 --enable-cors-header）、或用 nginx / Cloudflare Worker / 本目录 <code>cors_proxy.py</code> 同源反代。
       生成显示「出图中 x/y 步」；图在本机浏览器，清缓存会丢；实例关机前 Comfy output 也有原图。
     </p>
+    </section>
   </div>
 
   <div class="lightbox" id="lightbox" hidden>
