@@ -2284,12 +2284,16 @@
     const input = $("pngImportFile");
     const zone = $("pngImportZone");
     const clr = $("btnClearImport");
-    if (btn && input) {
-      btn.addEventListener("click", () => input.click());
+    // Prefer label[for=pngImportFile] (see index.html): iOS Safari/Chrome often
+    // ignore programmatic input.click() from a separate button.
+    if (input) {
       input.addEventListener("change", () => {
         const f = input.files && input.files[0];
         if (f) handlePngImportFile(f).catch((e) => console.error(e));
       });
+    }
+    if (btn && input && btn.tagName === "BUTTON") {
+      btn.addEventListener("click", () => input.click());
     }
     if (clr) {
       clr.addEventListener("click", () => {

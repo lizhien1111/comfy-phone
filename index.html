@@ -218,12 +218,24 @@
       color: var(--muted);
       line-height: 1.45;
     }
+    /* label.btn: iOS Safari opens album via for=/id, not button.click() */
+    label.btn {
+      margin: 0;
+      box-sizing: border-box;
+      text-align: center;
+      -webkit-tap-highlight-color: transparent;
+    }
     .png-import input[type="file"] {
       position: absolute;
       width: 1px;
       height: 1px;
-      opacity: 0;
+      padding: 0;
+      margin: -1px;
       overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+      opacity: 0;
     }
     .hint {
       margin-top: 18px;
@@ -741,10 +753,10 @@
 
     <div class="png-import" id="pngImportZone">
       <div class="png-import-row">
-        <button type="button" class="btn btn-ghost" id="btnImportPng">导入外部 PNG 工作流</button>
+        <label class="btn btn-ghost" id="btnImportPng" for="pngImportFile">从 PNG 导入工作流</label>
         <button type="button" class="btn btn-ghost" id="btnClearImport" hidden style="flex:0.45">清除</button>
       </div>
-      <input id="pngImportFile" type="file" accept="image/png,.png" />
+      <input id="pngImportFile" type="file" accept="image/png,image/*,.png" />
       <p class="png-import-hint" id="pngImportHint">可从相册或「文件」选任意外部 Comfy PNG（本页以外保存的也行）。读取内嵌 prompt / workflow，填入提示词与参数；非本页 Lustify 完整图可按原工作流出图。</p>
     </div>
 
@@ -836,10 +848,10 @@
     <div class="lightbox-info" id="lightboxInfo"></div>
   </div>
 
-  <script src="png-meta.js?v=ext-png-20261015b"></script>
-  <script src="workflow.js?v=ext-png-20261015b"></script>
-  <script src="gallery.js?v=ext-png-20261015b"></script>
-  <script src="app.js?v=ext-png-20261015b"></script>
+  <script src="png-meta.js?v=png-label-20261015c"></script>
+  <script src="workflow.js?v=png-label-20261015c"></script>
+  <script src="gallery.js?v=png-label-20261015c"></script>
+  <script src="app.js?v=png-label-20261015c"></script>
 
   <script>
     function googleTranslateElementInit() {
