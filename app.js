@@ -41,6 +41,10 @@
   let connectedOk = false;
   let cancelRequested = false;
 
+  /** Imported Comfy API prompt from PNG (full graph mode), or null for Lustify form path */
+  let importedApiPrompt = null;
+  let importMode = "none"; // none | params | api
+
   function getBase() {
     const fromBase = ($("baseUrl") && $("baseUrl").value) || "";
     const fromBoot = ($("bootUrl") && $("bootUrl").value) || "";
@@ -2128,16 +2132,192 @@
     }
   }
 
+
+  function setImportHint(text, kind) {
+    const el = $("pngImportHint");
+    if (!el) return;
+    el.textContent = text || "";
+    el.style.color =
+      kind === "ok" ? "var(--ok)" : kind === "err" ? "var(--err)" : "var(--muted)";
+  }
+
+  function clearPngImport() {
+    importedApiPrompt = null;
+    importMode = "none";
+    const clr = $("btnClearImport");
+    if (clr) clr.hidden = true;
+    const file = $("pngImportFile");
+    if (file) file.value = "";
+    setImportHint(
+      "选择 Comfy 生成的 PNG，本页会读取内嵌 prompt / workflow，填入提示词与参数；完整图也可直接按原工作流出图。",
+      ""
+    );
+  }
+
+  function applyParamsToForm(params) {
+    if (!params) return;
+    if (params.prompt) $("prompt").value = params.prompt;
+    if (params.negative != null && String(params.negative).length) {
+      $("negative").value = params.negative;
+    }
+    if (params.steps != null && Number.isFinite(Number(params.steps))) {
+      $("steps").value = String(Math.round(Number(params.steps)));
+    }
+    if (params.width != null && Number.isFinite(Number(params.width))) {
+      $("width").value = String(Math.round(Number(params.width)));
+    }
+    if (params.height != null && Number.isFinite(Number(params.height))) {
+      $("height").value = String(Math.round(Number(params.height)));
+    }
+    if (params.seed != null && Number.isFinite(Number(params.seed))) {
+      $("seed").value = String(Math.round(Number(params.seed)));
+    }
+  }
+
+  async function handlePngImportFile(file) {
+    if (!file) return;
+    const Meta = window.ComfyPngMeta;
+    if (!Meta) {
+      setStatus("png-meta.js 未加载", "err");
+      setImportHint("解析模块未加载", "err");
+      return;
+    }
+    const name = file.name || "image.png";
+    if (!/\.png$/i.test(name) && file.type && file.type !== "image/png") {
+      setStatus("请选择 PNG 文件", "err");
+      setImportHint("仅支持 PNG", "err");
+      return;
+    }
+    setStatus("正在读取 PNG 元数据…", "run");
+    setImportHint("读取中…", "");
+    try {
+      const buf = await file.arrayBuffer();
+      const meta = await Meta.parsePngComfyMeta(buf);
+      if (!meta.prompt && !meta.workflow) {
+        importedApiPrompt = null;
+        importMode = "none";
+        const clr = $("btnClearImport");
+        if (clr) clr.hidden = true;
+        setStatus("这张 PNG 没有 Comfy 工作流元数据", "err");
+        setImportHint(
+          "未找到 prompt / workflow 文本块。请用 Comfy 的 SaveImage 生成的图，或确认未被其它软件重新导出。",
+          "err"
+        );
+        return;
+      }
+
+      let params = { prompt: "", negative: "", steps: null, width: null, height: null, seed: null, cfg: null, matchedLustify: false };
+      if (meta.prompt) {
+        params = Meta.extractParamsFromApiPrompt(meta.prompt);
+      }
+      if (!params.prompt && meta.workflow) {
+        const ui = Meta.extractParamsFromUiWorkflow(meta.workflow);
+        params = Object.assign(params, {
+          prompt: ui.prompt || params.prompt,
+          negative: ui.negative || params.negative,
+          steps: params.steps != null ? params.steps : ui.steps,
+          width: params.width != null ? params.width : ui.width,
+          height: params.height != null ? params.height : ui.height,
+          seed: params.seed != null ? params.seed : ui.seed,
+          cfg: params.cfg != null ? params.cfg : ui.cfg,
+          matchedLustify: params.matchedLustify || ui.matchedLustify,
+        });
+      }
+
+      applyParamsToForm(params);
+
+      const hasApi = !!(meta.prompt && typeof meta.prompt === "object");
+      const useFullApi = hasApi && !params.matchedLustify;
+      if (useFullApi) {
+        importedApiPrompt = meta.prompt;
+        importMode = "api";
+        setStatus(
+          "已导入完整工作流 · 点「生成」将按原图节点出图（表单种子/步数可覆盖）",
+          "ok"
+        );
+        setImportHint(
+          "模式：完整 API 工作流（" +
+            Object.keys(meta.prompt).length +
+            " 节点）· 来自 " +
+            name,
+          "ok"
+        );
+      } else {
+        importedApiPrompt = null;
+        importMode = "params";
+        const bits = [];
+        if (params.prompt) bits.push("提示词");
+        if (params.negative) bits.push("负面");
+        if (params.steps != null) bits.push("步数 " + params.steps);
+        if (params.width != null && params.height != null) {
+          bits.push(params.width + "×" + params.height);
+        }
+        if (params.seed != null) bits.push("种子 " + params.seed);
+        setStatus(
+          "已填入参数" + (params.matchedLustify ? "（Lustify）" : "") + " · 点「生成」出图",
+          "ok"
+        );
+        setImportHint(
+          "模式：填入表单 · " +
+            (bits.length ? bits.join(" · ") : "已读取元数据") +
+            " · " +
+            name,
+          "ok"
+        );
+      }
+      const clr = $("btnClearImport");
+      if (clr) clr.hidden = false;
+    } catch (e) {
+      console.error(e);
+      setStatus("导入失败: " + (e && e.message ? e.message : String(e)), "err");
+      setImportHint("解析失败: " + (e && e.message ? e.message : String(e)), "err");
+    }
+  }
+
+  function bindPngImport() {
+    const btn = $("btnImportPng");
+    const input = $("pngImportFile");
+    const zone = $("pngImportZone");
+    const clr = $("btnClearImport");
+    if (btn && input) {
+      btn.addEventListener("click", () => input.click());
+      input.addEventListener("change", () => {
+        const f = input.files && input.files[0];
+        if (f) handlePngImportFile(f).catch((e) => console.error(e));
+      });
+    }
+    if (clr) {
+      clr.addEventListener("click", () => {
+        clearPngImport();
+        setStatus("已清除 PNG 导入", "");
+      });
+    }
+    if (zone) {
+      zone.addEventListener("dragover", (ev) => {
+        ev.preventDefault();
+        zone.classList.add("dragover");
+      });
+      zone.addEventListener("dragleave", () => zone.classList.remove("dragover"));
+      zone.addEventListener("drop", (ev) => {
+        ev.preventDefault();
+        zone.classList.remove("dragover");
+        const f = ev.dataTransfer && ev.dataTransfer.files && ev.dataTransfer.files[0];
+        if (f) handlePngImportFile(f).catch((e) => console.error(e));
+      });
+    }
+  }
+
   async function generate() {
     if (running) return;
     const prompt = ($("prompt").value || "").trim();
-    if (!prompt) {
-      setStatus("请先填写提示词", "err");
+    const useImportedApi = importMode === "api" && importedApiPrompt;
+    if (!prompt && !useImportedApi) {
+      setStatus("请先填写提示词，或从 PNG 导入工作流", "err");
       return;
     }
 
     const W = window.ComfyPhoneWorkflow;
-    if (!W) {
+    if (!useImportedApi && !W) {
       setStatus("workflow.js 未加载", "err");
       return;
     }
@@ -2157,7 +2337,7 @@
     if (!Number.isFinite(batch) || batch < 1) batch = 1;
     if (batch > 20) batch = 20;
     if ($("batch")) $("batch").value = String(batch);
-    const negative = ($("negative").value || "").trim() || W.DEFAULT_NEG;
+    const negative = ($("negative").value || "").trim() || (W && W.DEFAULT_NEG) || "";
 
     try {
       requireBase();
@@ -2200,16 +2380,24 @@
         currentPromptId = null;
         closeWs();
 
-        const workflow = W.buildWorkflow({
-          prompt,
-          negative,
-          steps,
-          width,
-          height,
-          seed,
-          cfg: 1.0,
-          prefix: "phone_" + seed,
-        });
+        let workflow;
+        if (useImportedApi) {
+          const Meta = window.ComfyPngMeta;
+          workflow = Meta
+            ? Meta.patchApiPrompt(importedApiPrompt, { seed: seed, steps: steps })
+            : JSON.parse(JSON.stringify(importedApiPrompt));
+        } else {
+          workflow = W.buildWorkflow({
+            prompt,
+            negative,
+            steps,
+            width,
+            height,
+            seed,
+            cfg: 1.0,
+            prefix: "phone_" + seed,
+          });
+        }
 
         openProgressWs();
         setStatus("排队中… " + (n + 1) + "/" + batch + " · 种子 " + seed, "run");

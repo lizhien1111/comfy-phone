@@ -194,6 +194,37 @@
         linear-gradient(#4a5568, #4a5568) center / 1.5px 18px no-repeat;
       opacity: 0.7;
     }
+
+    .png-import {
+      margin-top: 14px;
+      padding: 12px;
+      background: var(--card);
+      border: 1px dashed var(--border);
+      border-radius: var(--radius);
+    }
+    .png-import.dragover {
+      border-color: var(--accent);
+      background: #1e2430;
+    }
+    .png-import-row {
+      display: flex;
+      gap: 8px;
+      align-items: stretch;
+    }
+    .png-import-row .btn { flex: 1; margin-top: 0; }
+    .png-import-hint {
+      margin: 8px 0 0;
+      font-size: 0.75rem;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+    .png-import input[type="file"] {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      opacity: 0;
+      overflow: hidden;
+    }
     .hint {
       margin-top: 18px;
       font-size: 0.75rem;
@@ -707,6 +738,16 @@
       <div class="conn" id="connStatus">未连接 · 粘贴 Comfy 公网地址后点连接</div>
     </div>
 
+
+    <div class="png-import" id="pngImportZone">
+      <div class="png-import-row">
+        <button type="button" class="btn btn-ghost" id="btnImportPng">从 PNG 导入工作流</button>
+        <button type="button" class="btn btn-ghost" id="btnClearImport" hidden style="flex:0.45">清除</button>
+      </div>
+      <input id="pngImportFile" type="file" accept="image/png,.png" />
+      <p class="png-import-hint" id="pngImportHint">选择 Comfy 生成的 PNG，本页会读取内嵌 prompt / workflow，填入提示词与参数；完整图也可直接按原工作流出图。</p>
+    </div>
+
     <label for="prompt">提示词</label>
     <textarea id="prompt" placeholder="描述你想生成的画面…"></textarea>
 
@@ -778,7 +819,7 @@
     <p class="hint">
       本页可放任意静态托管；填 AutoDL/Comfy 公网地址（不要加端口）后点「连接」。
       跨域常被 CORS 拦：需 Comfy 开 CORS（如 --enable-cors-header）、或用 nginx / Cloudflare Worker / 本目录 <code>cors_proxy.py</code> 同源反代。
-      生成显示「出图中 x/y 步」；图保存在本机浏览器图库，清缓存会丢；实例关机前 Comfy output 也有原图。
+      可点「从 PNG 导入工作流」读取 Comfy 图内元数据；生成显示「出图中 x/y 步」；图保存在本机浏览器图库，清缓存会丢；实例关机前 Comfy output 也有原图。
       图库点「选择」勾选后，点「存到相册」会打开系统分享（选「存储图像」/「存储到相册」）；不支持分享时请打开大图长按保存。
     </p>
     </section>
@@ -795,9 +836,10 @@
     <div class="lightbox-info" id="lightboxInfo"></div>
   </div>
 
-  <script src="workflow.js?v=runpod-boot-20261015"></script>
-  <script src="gallery.js?v=runpod-boot-20261015"></script>
-  <script src="app.js?v=runpod-boot-20261015"></script>
+  <script src="png-meta.js?v=png-import-20261015"></script>
+  <script src="workflow.js?v=png-import-20261015"></script>
+  <script src="gallery.js?v=png-import-20261015"></script>
+  <script src="app.js?v=png-import-20261015"></script>
 
   <script>
     function googleTranslateElementInit() {
