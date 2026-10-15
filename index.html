@@ -667,37 +667,6 @@
       <button type="button" class="btn btn-danger" id="btnCancel" style="margin-top:0;min-height:var(--tap);flex:0.55" disabled>取消</button>
     </div>
 
-    <div class="save-github-row">
-      <label class="chk-label" for="chkSaveGithub">
-        <input type="checkbox" id="chkSaveGithub" />
-        存入仓库
-      </label>
-    </div>
-    <div class="gh-settings" id="ghSettings" hidden>
-      <label for="ghToken">GitHub Token</label>
-      <input id="ghToken" type="password" autocomplete="off" placeholder="ghp_… 或 fine-grained PAT" />
-      <label for="ghRepo">仓库（可选）</label>
-      <input id="ghRepo" type="text" autocomplete="off" placeholder="lizhien1111/comfy-phone-gallery" />
-      <p class="hint-inline">token 需有该私有仓库 Contents 写权限；图会上传到仓库 <code>gallery/</code> 目录；公开 Pages 仓库不会存图。</p>
-    </div>
-
-    <div class="save-github-row">
-      <label class="chk-label" for="chkSaveTelegram">
-        <input type="checkbox" id="chkSaveTelegram" />
-        发到 Telegram
-      </label>
-    </div>
-    <div class="gh-settings" id="tgSettings" hidden>
-      <label for="tgToken">Telegram Bot Token</label>
-      <input id="tgToken" type="password" autocomplete="off" placeholder="123456:AAH…（BotFather 的 API Token）" />
-      <label for="tgChatId">Chat ID</label>
-      <input id="tgChatId" type="text" inputmode="numeric" autocomplete="off" placeholder="5407949298" />
-      <label for="tgProxy">Telegram 代理（国内必填）</label>
-      <input id="tgProxy" type="url" autocomplete="off" placeholder="https://comfy-telegram-proxy.xxx.workers.dev" />
-      <button type="button" class="btn btn-ghost" id="btnTgTest" style="margin-top:8px;width:100%">测试 Telegram 连接</button>
-      <p class="hint-inline">先打开 <a href="https://t.me/vrenybot" target="_blank" rel="noopener">@vrenybot</a> 发一句 <code>/start</code>，再粘贴 BotFather 的 token 与 chat id。国内手机多半直连不了 <code>api.telegram.org</code>，需部署仓库里 <code>workers/telegram-proxy.js</code>（Cloudflare Worker，免费），把地址填到「Telegram 代理」。图只发到你的私聊；token 存在本机，不会写进仓库。</p>
-    </div>
-
     <div class="status" id="status">就绪</div>
 
     <div class="preview-box">
@@ -721,9 +690,7 @@
       <span id="gallerySelectActions" hidden style="display:contents">
         <button type="button" class="btn btn-ghost" id="btnGalSelectAll">全选</button>
         <button type="button" class="btn btn-ghost" id="btnGalClearSel">取消勾选</button>
-        <button type="button" class="btn btn-save" id="btnGalSaveLocal" style="margin-top:0">保存到本地</button>
-        <button type="button" class="btn btn-primary" id="btnGalSaveGh" style="margin-top:0;width:auto">存入仓库</button>
-        <button type="button" class="btn btn-primary" id="btnGalSaveTg" style="margin-top:0;width:auto;background:#2AABEE">发到 Telegram</button>
+        <button type="button" class="btn btn-save" id="btnGalSaveAlbum" style="margin-top:0">存到相册</button>
         <button type="button" class="btn btn-danger" id="btnClearGallery" style="margin-top:0;width:auto" title="只删除勾选的图片">删除</button>
       </span>
     </div>
@@ -733,11 +700,8 @@
     <p class="hint">
       本页可放任意静态托管；填 AutoDL/Comfy 公网地址（不要加端口）后点「连接」。
       跨域常被 CORS 拦：需 Comfy 开 CORS（如 --enable-cors-header）、或用 nginx / Cloudflare Worker / 本目录 <code>cors_proxy.py</code> 同源反代。
-      生成显示「出图中 x/y 步」；图在本机浏览器，清缓存会丢；实例关机前 Comfy output 也有原图。
-      「存入仓库」会排队上传，切到抖音等 App 回来会自动继续，底部进度条常显；登录 GitHub 打开
-      <a href="https://github.com/lizhien1111/comfy-phone-gallery" target="_blank" rel="noopener">comfy-phone-gallery</a>
-      的 README 或 <code>gallery/</code> 下的 png 即可看图。
-      「发到 Telegram」同样排队+进度；需打开 <a href="https://t.me/vrenybot" target="_blank" rel="noopener">@vrenybot</a>，填 token、chat id，国内还需填 Cloudflare Worker 代理（见仓库 <code>workers/</code>）。
+      生成显示「出图中 x/y 步」；图保存在本机浏览器图库，清缓存会丢；实例关机前 Comfy output 也有原图。
+      图库点「选择」勾选后，可用「存到相册」触发浏览器下载（需在系统弹窗里确认保存到相册）。
     </p>
     </section>
   </div>
@@ -754,8 +718,8 @@
   </div>
 
   <script src="workflow.js?v=del-only-20261015"></script>
-  <script src="gallery.js?v=tgjson-20261015"></script>
-  <script src="app.js?v=tgjson-20261015"></script>
+  <script src="gallery.js?v=album-20261015"></script>
+  <script src="app.js?v=album-20261015"></script>
 
   <script>
     function googleTranslateElementInit() {

@@ -1344,10 +1344,11 @@
 
 
   function downloadBlob(blob, filename) {
+    const safe = sanitizeFilename(filename || "comfy_phone.png");
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = filename.endsWith(".png") ? filename : filename + ".png";
+    a.download = safe;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -1515,18 +1516,31 @@
     return all.filter((x) => selectedGalleryIds.has(x.id));
   }
 
-  async function saveSelectedLocal() {
-    const items = await getSelectedGalleryItems();
-    if (!items.length) {
-      setStatus(gallerySelectMode ? "请先选择图库里的图片" : "请先点「选择」，再勾选图片", "err");
+  async function saveSelectedAlbum() {
+    if (!gallerySelectMode) {
+      setStatus("请先点「选择」，再勾选图片", "err");
       return;
     }
-    setStatus("正在保存 " + items.length + " 张到本地…", "run");
-    for (const item of items) {
-      downloadBlob(item.blob, item.filename || "comfy_phone.png");
-      await new Promise((r) => setTimeout(r, 350));
+    const items = await getSelectedGalleryItems();
+    if (!items.length) {
+      setStatus("请先选择图库里的图片", "err");
+      return;
     }
-    setStatus("已触发下载 " + items.length + " 张（请允许浏览器下载）", "ok");
+    setStatus("正在存到相册 " + items.length + " 张…", "run");
+    for (const item of items) {
+      const name = sanitizeFilename(item.filename || "comfy_phone.png");
+      downloadBlob(item.blob, name);
+      await new Promise((r) => setTimeout(r, 400));
+    }
+    setStatus(
+      "已触发下载 " + items.length + " 张（请在系统弹窗里确认保存到相册）",
+      "ok"
+    );
+  }
+
+  /** @deprecated alias — kept for any leftover callers */
+  async function saveSelectedLocal() {
+    return saveSelectedAlbum();
   }
 
   async function saveSelectedGithub() {
@@ -2432,9 +2446,12 @@
         await renderGallery();
       });
     }
-    if ($("btnGalSaveLocal")) $("btnGalSaveLocal").addEventListener("click", () => {
-      saveSelectedLocal().catch((e) => setStatus("保存失败: " + (e && e.message ? e.message : String(e)), "err"));
+    if ($("btnGalSaveAlbum")) $("btnGalSaveAlbum").addEventListener("click", () => {
+      saveSelectedAlbum().catch((e) =>
+        setStatus("存到相册失败: " + (e && e.message ? e.message : String(e)), "err")
+      );
     });
+    // GitHub / Telegram gallery buttons removed from UI; code paths kept if elements reappear
     if ($("btnGalSaveGh")) $("btnGalSaveGh").addEventListener("click", () => {
       saveSelectedGithub().catch((e) => setStatus("上传失败: " + (e && e.message ? e.message : String(e)), "err"));
     });
