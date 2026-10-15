@@ -1191,7 +1191,7 @@
       lines.push("# comfy-phone-gallery");
       lines.push("");
       lines.push(
-        "手机出图私有图库（从 [comfy-phone](https://lizhien1111.github.io/comfy-phone/) 上传）。"
+        "手机出图私有图库（从 [vreny](https://lizhien1111.github.io/vreny/) 上传）。"
       );
       lines.push("");
       lines.push("## 怎么看图");

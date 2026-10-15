@@ -2,7 +2,7 @@
 
 轻量手机网页：启动页开实例 / 填公网 / **拉起 Comfy** → 改提示词出图 → 图库本机保存。
 
-在线：[https://lizhien1111.github.io/comfy-phone/](https://lizhien1111.github.io/comfy-phone/)
+在线：[https://lizhien1111.github.io/vreny/](https://lizhien1111.github.io/vreny/)
 
 ## 文件
 
