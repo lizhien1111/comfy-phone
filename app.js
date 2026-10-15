@@ -2149,7 +2149,7 @@
     const file = $("pngImportFile");
     if (file) file.value = "";
     setImportHint(
-      "选择 Comfy 生成的 PNG，本页会读取内嵌 prompt / workflow，填入提示词与参数；完整图也可直接按原工作流出图。",
+      "可从相册或「文件」选任意外部 Comfy PNG（本页以外保存的也行）。读取内嵌 prompt / workflow，填入提示词与参数；非本页 Lustify 完整图可按原工作流出图。",
       ""
     );
   }
@@ -2183,9 +2183,14 @@
       return;
     }
     const name = file.name || "image.png";
-    if (!/\.png$/i.test(name) && file.type && file.type !== "image/png") {
-      setStatus("请选择 PNG 文件", "err");
-      setImportHint("仅支持 PNG", "err");
+    const looksPng =
+      /\.png$/i.test(name) ||
+      !file.type ||
+      file.type === "image/png" ||
+      file.type === "application/octet-stream";
+    if (!looksPng) {
+      setStatus("请选择 PNG 文件（相册/文件里的原图）", "err");
+      setImportHint("仅支持 PNG；请从相册或文件选择", "err");
       return;
     }
     setStatus("正在读取 PNG 元数据…", "run");
@@ -2200,7 +2205,7 @@
         if (clr) clr.hidden = true;
         setStatus("这张 PNG 没有 Comfy 工作流元数据", "err");
         setImportHint(
-          "未找到 prompt / workflow 文本块。请用 Comfy 的 SaveImage 生成的图，或确认未被其它软件重新导出。",
+          "未找到 prompt / workflow 文本块。请选 Comfy SaveImage 原图 PNG（相册/文件均可）；若经微信等重存过会丢元数据。",
           "err"
         );
         return;

@@ -741,11 +741,11 @@
 
     <div class="png-import" id="pngImportZone">
       <div class="png-import-row">
-        <button type="button" class="btn btn-ghost" id="btnImportPng">从 PNG 导入工作流</button>
+        <button type="button" class="btn btn-ghost" id="btnImportPng">导入外部 PNG 工作流</button>
         <button type="button" class="btn btn-ghost" id="btnClearImport" hidden style="flex:0.45">清除</button>
       </div>
       <input id="pngImportFile" type="file" accept="image/png,.png" />
-      <p class="png-import-hint" id="pngImportHint">选择 Comfy 生成的 PNG，本页会读取内嵌 prompt / workflow，填入提示词与参数；完整图也可直接按原工作流出图。</p>
+      <p class="png-import-hint" id="pngImportHint">可从相册或「文件」选任意外部 Comfy PNG（本页以外保存的也行）。读取内嵌 prompt / workflow，填入提示词与参数；非本页 Lustify 完整图可按原工作流出图。</p>
     </div>
 
     <label for="prompt">提示词</label>
@@ -819,7 +819,7 @@
     <p class="hint">
       本页可放任意静态托管；填 AutoDL/Comfy 公网地址（不要加端口）后点「连接」。
       跨域常被 CORS 拦：需 Comfy 开 CORS（如 --enable-cors-header）、或用 nginx / Cloudflare Worker / 本目录 <code>cors_proxy.py</code> 同源反代。
-      可点「从 PNG 导入工作流」读取 Comfy 图内元数据；生成显示「出图中 x/y 步」；图保存在本机浏览器图库，清缓存会丢；实例关机前 Comfy output 也有原图。
+      可点「导入外部 PNG 工作流」从相册/文件选任意 Comfy PNG 读元数据；生成显示「出图中 x/y 步」；图保存在本机浏览器图库，清缓存会丢；实例关机前 Comfy output 也有原图。
       图库点「选择」勾选后，点「存到相册」会打开系统分享（选「存储图像」/「存储到相册」）；不支持分享时请打开大图长按保存。
     </p>
     </section>
@@ -836,10 +836,10 @@
     <div class="lightbox-info" id="lightboxInfo"></div>
   </div>
 
-  <script src="png-meta.js?v=png-import-20261015"></script>
-  <script src="workflow.js?v=png-import-20261015"></script>
-  <script src="gallery.js?v=png-import-20261015"></script>
-  <script src="app.js?v=png-import-20261015"></script>
+  <script src="png-meta.js?v=ext-png-20261015b"></script>
+  <script src="workflow.js?v=ext-png-20261015b"></script>
+  <script src="gallery.js?v=ext-png-20261015b"></script>
+  <script src="app.js?v=ext-png-20261015b"></script>
 
   <script>
     function googleTranslateElementInit() {
