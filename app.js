@@ -1582,7 +1582,7 @@
     if (typeof navigator !== "undefined" && navigator.share) {
       try {
         if (!navigator.canShare || navigator.canShare({ files })) {
-          await navigator.share({ files: files, title: "Comfy 出图" });
+          await navigator.share({ files: files, title: "vreny" });
           return { mode: "share", count: files.length };
         }
       } catch (e) {
