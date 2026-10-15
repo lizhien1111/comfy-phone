@@ -613,6 +613,21 @@
     }
   }
 
+  function blobToBase64(blob) {
+    return new Promise(function (resolve, reject) {
+      const reader = new FileReader();
+      reader.onload = function () {
+        const s = String(reader.result || "");
+        const i = s.indexOf(",");
+        resolve(i >= 0 ? s.slice(i + 1) : s);
+      };
+      reader.onerror = function () {
+        reject(reader.error || new Error("read failed"));
+      };
+      reader.readAsDataURL(blob);
+    });
+  }
+
   async function uploadBlobToTelegramWithMeta(blob, filename, caption) {
     if (!blob) return { ok: false, error: "no blob" };
     const token = getTgToken();
@@ -621,7 +636,35 @@
     if (!chatId) return { ok: false, error: "no chat id" };
     const safeName = sanitizeFilename(filename);
     const cap = (caption || safeName || "").slice(0, 1024);
-    async function send(method, field) {
+    const proxyBase = getTgProxyBase();
+
+    async function sendViaProxyJson(method, field) {
+      const file_b64 = await blobToBase64(blob);
+      const res = await fetch(proxyBase + "/tg", {
+        method: "POST",
+        mode: "cors",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          token: token,
+          method: method,
+          chat_id: chatId,
+          field: field,
+          filename: safeName,
+          file_b64: file_b64,
+          caption: cap,
+        }),
+      });
+      let detail = "HTTP " + res.status;
+      let data = null;
+      try {
+        data = await res.json();
+        if (data && data.description) detail = String(data.description).slice(0, 160);
+        else if (data && data.ok === false) detail = "Telegram rejected";
+      } catch (e) {}
+      return { res: res, data: data, detail: detail };
+    }
+
+    async function sendDirect(method, field) {
       const fd = new FormData();
       fd.append("chat_id", chatId);
       fd.append(field, blob, safeName);
@@ -634,10 +677,11 @@
         if (data && data.description) detail = String(data.description).slice(0, 160);
         else if (data && data.ok === false) detail = "Telegram rejected";
       } catch (e) {}
-      return { res, data, detail };
+      return { res: res, data: data, detail: detail };
     }
+
+    const send = proxyBase ? sendViaProxyJson : sendDirect;
     try {
-      // Prefer sendPhoto; large PNGs fall back to sendDocument
       const tooBigForPhoto = (blob.size || 0) > TG_PHOTO_MAX;
       if (!tooBigForPhoto) {
         const r = await send("sendPhoto", "photo");
