@@ -505,6 +505,27 @@
       gap: 10px;
     }
     .boot-cta .btn-primary { margin-top: 0; }
+    .provider-tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+    .provider-tab {
+      flex: 1;
+      min-height: 44px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--muted);
+      font-size: 0.95rem;
+      font-weight: 650;
+      cursor: pointer;
+    }
+    .provider-tab.is-active {
+      background: #243048;
+      border-color: var(--accent);
+      color: var(--text);
+    }
     .compact-connect {
       margin-bottom: 4px;
     }
@@ -566,25 +587,21 @@
       <p class="sub">开机 → 填公网 / 拉起 Comfy → 进出图</p>
 
       <div class="boot-step">
-        <h2>步骤 1 · 开实例</h2>
-        <p>在 AutoDL / RunPod 等平台开机（有 GPU），本页不能替你开机。</p>
-        <div class="boot-actions">
+        <h2>步骤 1 · 选平台</h2>
+        <p>AutoDL 用启动接口拉起；RunPod 填 API Key + 机器码（Pod ID）一键开机。</p>
+        <div class="provider-tabs" role="tablist" aria-label="云平台">
+          <button type="button" class="provider-tab is-active" id="tabProvAutodl" data-prov="autodl">AutoDL</button>
+          <button type="button" class="provider-tab" id="tabProvRunpod" data-prov="runpod">RunPod</button>
+        </div>
+        <div class="boot-actions" style="margin-top:10px">
           <a class="btn btn-ghost" id="btnOpenAutodl" href="https://www.autodl.com/console/instance/list" target="_blank" rel="noopener noreferrer">打开 AutoDL</a>
           <a class="btn btn-ghost" id="btnOpenRunpod" href="https://www.runpod.io/console/pods" target="_blank" rel="noopener noreferrer">打开 RunPod</a>
         </div>
       </div>
 
-      <div class="boot-step">
-        <h2>步骤 2 · 填地址并拉起</h2>
-        <p>AutoDL 自定义服务开公网：<strong>6006</strong> 填 Comfy 地址（勿加 :8443），<strong>6008</strong> 填启动接口；RunPod 用各自 Public URL。</p>
-        <label for="bootUrl">Comfy 公网地址（6006）</label>
-        <input
-          id="bootUrl"
-          type="text"
-          inputmode="url"
-          autocomplete="url"
-          placeholder="https://u865025-xxxx.bjb1.seetacloud.com"
-        />
+      <div class="boot-step" id="bootPanelAutodl">
+        <h2>步骤 2 · AutoDL 启动接口</h2>
+        <p>自定义服务开公网：<strong>6008</strong> 填启动接口；Comfy 公网（6006）填在步骤 3。</p>
         <label for="startApiUrl">启动接口地址（6008，可选）</label>
         <input
           id="startApiUrl"
@@ -594,10 +611,70 @@
           placeholder="https://u….seetacloud.com（6008 映射）"
         />
         <p class="hint" style="margin:6px 0 10px;font-size:0.82rem;opacity:0.85">
-          有启动接口时点「拉起 Comfy」；再点「检测连接」确认 6006 通了，然后进入出图。
+          填好步骤 3 的 Comfy 地址后，点「拉起 Comfy」；接口会在实例里跑 boot 脚本。
         </p>
         <div class="boot-actions">
           <button type="button" class="btn btn-primary" id="btnStartComfy">拉起 Comfy</button>
+        </div>
+      </div>
+
+      <div class="boot-step" id="bootPanelRunpod" hidden>
+        <h2>步骤 2 · RunPod 凭证</h2>
+        <p>在控制台复制 <strong>机器码（Pod ID）</strong>；API Key 在 Settings → API Keys。都只存在本机浏览器，不会上传到本站。</p>
+        <label for="runpodApiKey">RunPod API Key</label>
+        <input
+          id="runpodApiKey"
+          type="password"
+          autocomplete="off"
+          placeholder="rpa_… 或 API Key"
+        />
+        <label for="runpodPodId">机器码（Pod ID）</label>
+        <input
+          id="runpodPodId"
+          type="text"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="例如 abc123xyz（控制台 Pod 详情里）"
+        />
+        <div class="row" style="margin-top:0">
+          <div>
+            <label for="runpodPort">Comfy HTTP 端口</label>
+            <input id="runpodPort" type="number" min="1" max="65535" value="8188" />
+          </div>
+          <div>
+            <label for="runpodProxy">API 代理（可选）</label>
+            <input
+              id="runpodProxy"
+              type="text"
+              inputmode="url"
+              autocomplete="off"
+              placeholder="Worker 地址，国内可填"
+            />
+          </div>
+        </div>
+        <p class="hint" style="margin:6px 0 10px;font-size:0.82rem;opacity:0.85">
+          公网形如 <code>https://&lt;机器码&gt;-&lt;端口&gt;.proxy.runpod.net</code>。模板须暴露该 HTTP 端口，Comfy 监听 0.0.0.0。
+        </p>
+        <div class="boot-actions">
+          <button type="button" class="btn btn-primary" id="btnRunpodStart">开机并等 Comfy</button>
+          <button type="button" class="btn btn-ghost" id="btnRunpodFillUrl">只填公网</button>
+          <button type="button" class="btn btn-danger" id="btnRunpodStop" style="margin-top:0">关 Pod</button>
+        </div>
+        <div class="conn" id="runpodStatus">未配置 · 填 API Key 与机器码后点开机</div>
+      </div>
+
+      <div class="boot-step">
+        <h2>步骤 3 · Comfy 公网</h2>
+        <p id="bootUrlHint">AutoDL 填 6006 公网；RunPod 开机后会自动填入 proxy 地址，也可手改。</p>
+        <label for="bootUrl">Comfy 公网地址</label>
+        <input
+          id="bootUrl"
+          type="text"
+          inputmode="url"
+          autocomplete="url"
+          placeholder="https://…"
+        />
+        <div class="boot-actions" style="margin-top:10px">
           <button type="button" class="btn btn-ghost" id="btnBootConnect">检测连接</button>
         </div>
         <div class="conn" id="bootConnStatus">未连接 · 粘贴公网地址后点检测</div>
@@ -718,9 +795,9 @@
     <div class="lightbox-info" id="lightboxInfo"></div>
   </div>
 
-  <script src="workflow.js?v=title-vreny-20261015"></script>
-  <script src="gallery.js?v=title-vreny-20261015"></script>
-  <script src="app.js?v=title-vreny-20261015"></script>
+  <script src="workflow.js?v=runpod-boot-20261015"></script>
+  <script src="gallery.js?v=runpod-boot-20261015"></script>
+  <script src="app.js?v=runpod-boot-20261015"></script>
 
   <script>
     function googleTranslateElementInit() {

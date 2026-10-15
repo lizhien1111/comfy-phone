@@ -1,28 +1,26 @@
-# Telegram 代理（Cloudflare Worker）
+# Cloudflare Workers（可选代理）
 
-手机在国内常无法直连 `api.telegram.org`（进度条会显示「失败」且原因像 `Failed to fetch`）。
-本 Worker 只做中转：手机 → Worker → Telegram。
+手机页可直连多数 API；国内网络不稳时再部署代理。
 
-## 部署（只需一次）
+## Telegram 代理
 
-1. 注册 [Cloudflare](https://dash.cloudflare.com/)（免费即可）
-2. 本机安装 Node 后：
+见 `telegram-proxy.js`。手机「Telegram 代理」填 Worker 地址。
 
 ```bash
 cd workers
-npx wrangler login
-npx wrangler deploy
+npx wrangler deploy -c wrangler.toml
+# 或 Dashboard 粘贴 telegram-proxy.js
 ```
 
-3. 记下输出的地址，形如 `https://comfy-telegram-proxy.<你的子域>.workers.dev`
+## RunPod API 代理
 
-也可在 Dashboard → Workers & Pages → Create → 粘贴 `telegram-proxy.js` 全文后 Deploy。
+`rest.runpod.io` 已开 CORS，多数环境可直连。若手机「开机」报 `Failed to fetch`，再部署 `runpod-proxy.js`：
 
-## 手机页
+```bash
+cd workers
+npx wrangler deploy -c wrangler.runpod.toml
+```
 
-1. 勾选「发到 Telegram」，填 Bot Token 与 Chat ID  
-2. **Telegram 代理** 填上一步的 Worker 地址（不要末尾 `/`）  
-3. 点「测试连接」应显示 Bot 用户名  
-4. 再「选择」勾图 →「发到 Telegram」
+手机 RunPod 面板「API 代理」填：`https://comfy-runpod-proxy.<sub>.workers.dev`（无尾 `/`）。
 
-Token 仍只存在手机浏览器；Worker 不保存密钥。
+密钥仍只存在手机浏览器；Worker 按请求转发，不落盘。

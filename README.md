@@ -25,6 +25,21 @@
 
 两个公网地址通常不同（AutoDL 每个映射端口一个 `u….seetacloud.com`）。地址会记在 localStorage。
 
+## RunPod 一键开机
+
+1. 启动页选 **RunPod**。
+2. 填 **API Key**（[Settings → API Keys](https://www.runpod.io/console/user/settings)）与 **机器码（Pod ID）**（Pods 列表 / 详情里复制）。
+3. Comfy HTTP 端口默认 **8188**（须在 Pod 模板「Expose HTTP Ports」里暴露；Comfy 监听 `0.0.0.0`）。
+4. 点 **开机并等 Comfy** → 调用 `POST /pods/{id}/start`，自动填入  
+   `https://<机器码>-8188.proxy.runpod.net`，并轮询 `/system_stats`。
+5. 就绪后点 **进入出图**。用完可点 **关 Pod**（或出图页「关实例」）。
+
+密钥与机器码存在手机 `localStorage`，不上传本站。
+
+直连 `rest.runpod.io`（已 CORS）。若手机报 `Failed to fetch`，部署 `workers/runpod-proxy.js`，把 Worker 地址填到「API 代理」。
+
+模板需已装好 Comfy 并在启动脚本里拉起；本页只负责 **开机 Pod + 等公网**，不会往容器里装 Comfy。
+
 ## 实例部署：启动接口 + Comfy
 
 拷到实例（例：`/root/autodl-tmp/`）：
@@ -99,7 +114,7 @@ python3 cors_proxy.py 8765
 
 ## 功能摘要
 
-- 启动页：开实例入口、双公网地址、一键拉起、检测连接
+- 启动页：AutoDL / RunPod 切换；RunPod 填 API Key + 机器码一键开机；检测连接
 - WebSocket 实时「出图中 x/y 步」（失败则 `/history` 轮询）
 - IndexedDB 图库（清浏览器缓存会丢）
 - Lustify Krea Turbo 默认：30 步、1280×2560、CFG 1

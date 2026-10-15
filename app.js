@@ -1973,6 +1973,17 @@
 
 
   async function powerOffInstance() {
+    // RunPod path: stop via REST when credentials present
+    if (getProvider() === "runpod") {
+      const key = ($("runpodApiKey") && $("runpodApiKey").value || "").trim() || localStorage.getItem(LS_RP_KEY) || "";
+      const pod = ($("runpodPodId") && $("runpodPodId").value || "").trim() || localStorage.getItem(LS_RP_POD) || "";
+      if (key && pod) {
+        setStatus("正在关 RunPod…", "run");
+        const ok = await runpodStopAndConfirm();
+        if (ok) setStatus("RunPod 已关机", "ok");
+        return;
+      }
+    }
     try {
       requireBase();
     } catch (e) {
@@ -2282,7 +2293,349 @@
   }
 
 
+  /* ========== RunPod one-click ========== */
+  const LS_RP_KEY = "comfy_phone_runpod_key";
+  const LS_RP_POD = "comfy_phone_runpod_pod";
+  const LS_RP_PORT = "comfy_phone_runpod_port";
+  const LS_RP_PROXY = "comfy_phone_runpod_proxy";
+  const LS_PROVIDER = "comfy_phone_provider";
+
+  function setRunpodStatus(msg, kind) {
+    const el = $("runpodStatus");
+    if (!el) return;
+    el.textContent = msg || "";
+    el.className = "conn" + (kind ? " " + kind : "");
+  }
+
+  function getProvider() {
+    return localStorage.getItem(LS_PROVIDER) === "runpod" ? "runpod" : "autodl";
+  }
+
+  function setProvider(prov) {
+    const p = prov === "runpod" ? "runpod" : "autodl";
+    localStorage.setItem(LS_PROVIDER, p);
+    const autodl = $("bootPanelAutodl");
+    const runpod = $("bootPanelRunpod");
+    if (autodl) autodl.hidden = p !== "autodl";
+    if (runpod) runpod.hidden = p !== "runpod";
+    const tA = $("tabProvAutodl");
+    const tR = $("tabProvRunpod");
+    if (tA) tA.classList.toggle("is-active", p === "autodl");
+    if (tR) tR.classList.toggle("is-active", p === "runpod");
+    const hint = $("bootUrlHint");
+    if (hint) {
+      hint.textContent =
+        p === "runpod"
+          ? "RunPod 开机后会自动填入 proxy 地址，也可手改；再点检测连接。"
+          : "AutoDL 填 6006 公网；有启动接口时先点「拉起 Comfy」。";
+    }
+    const ph = $("bootUrl");
+    if (ph) {
+      ph.placeholder =
+        p === "runpod"
+          ? "https://<机器码>-8188.proxy.runpod.net"
+          : "https://u865025-xxxx.bjb1.seetacloud.com";
+    }
+  }
+
+  function persistRunpodFields() {
+    const key = ($("runpodApiKey") && $("runpodApiKey").value || "").trim();
+    const pod = ($("runpodPodId") && $("runpodPodId").value || "").trim();
+    const port = ($("runpodPort") && $("runpodPort").value || "").trim() || "8188";
+    const proxy = ($("runpodProxy") && $("runpodProxy").value || "").trim().replace(/\/+$/, "");
+    if (key) localStorage.setItem(LS_RP_KEY, key);
+    else localStorage.removeItem(LS_RP_KEY);
+    if (pod) localStorage.setItem(LS_RP_POD, pod);
+    else localStorage.removeItem(LS_RP_POD);
+    localStorage.setItem(LS_RP_PORT, port);
+    if (proxy) localStorage.setItem(LS_RP_PROXY, proxy);
+    else localStorage.removeItem(LS_RP_PROXY);
+  }
+
+  function loadRunpodFields() {
+    if ($("runpodApiKey")) $("runpodApiKey").value = localStorage.getItem(LS_RP_KEY) || "";
+    if ($("runpodPodId")) $("runpodPodId").value = localStorage.getItem(LS_RP_POD) || "";
+    if ($("runpodPort")) $("runpodPort").value = localStorage.getItem(LS_RP_PORT) || "8188";
+    if ($("runpodProxy")) $("runpodProxy").value = localStorage.getItem(LS_RP_PROXY) || "";
+  }
+
+  function requireRunpodCreds() {
+    persistRunpodFields();
+    const apiKey =
+      ($("runpodApiKey") && $("runpodApiKey").value || "").trim() ||
+      localStorage.getItem(LS_RP_KEY) ||
+      "";
+    const podId =
+      ($("runpodPodId") && $("runpodPodId").value || "").trim() ||
+      localStorage.getItem(LS_RP_POD) ||
+      "";
+    if ($("runpodApiKey") && apiKey && !$("runpodApiKey").value) $("runpodApiKey").value = apiKey;
+    if ($("runpodPodId") && podId && !$("runpodPodId").value) $("runpodPodId").value = podId;
+    if (!apiKey) throw new Error("请填写 RunPod API Key");
+    if (!podId) throw new Error("请填写机器码（Pod ID）");
+    if (!/^[A-Za-z0-9_-]{4,64}$/.test(podId)) {
+      throw new Error("机器码格式不对，请从 RunPod 控制台复制 Pod ID");
+    }
+    let port = Math.floor(Number(($("runpodPort") && $("runpodPort").value) || 8188));
+    if (!Number.isFinite(port) || port < 1 || port > 65535) port = 8188;
+    const proxy = ($("runpodProxy") && $("runpodProxy").value || "").trim().replace(/\/+$/, "");
+    return { apiKey, podId, port, proxy };
+  }
+
+  function runpodPublicUrl(podId, port) {
+    return "https://" + podId + "-" + port + ".proxy.runpod.net";
+  }
+
+  function fillComfyUrl(url) {
+    if ($("bootUrl")) $("bootUrl").value = url;
+    if ($("baseUrl")) $("baseUrl").value = url;
+    try {
+      localStorage.setItem("comfy_phone_base", url.replace(/\/+$/, ""));
+    } catch (e) {}
+  }
+
+  /**
+   * Call RunPod REST. Prefer direct rest.runpod.io (CORS *).
+   * Optional Worker: POST {proxy}/runpod  { method, path, apiKey, body? }
+   */
+  async function runpodFetch(creds, method, path, bodyObj) {
+    const pathClean = path.startsWith("/") ? path : "/" + path;
+    if (creds.proxy) {
+      const res = await fetch(creds.proxy + "/runpod", {
+        method: "POST",
+        mode: "cors",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          method: method,
+          path: pathClean,
+          apiKey: creds.apiKey,
+          body: bodyObj == null ? null : bodyObj,
+        }),
+      });
+      const text = await res.text();
+      let json = null;
+      try {
+        json = text ? JSON.parse(text) : null;
+      } catch (e) {
+        json = { raw: text };
+      }
+      return { ok: res.ok, status: res.status, json, text };
+    }
+    const url = "https://rest.runpod.io/v1" + pathClean;
+    const headers = {
+      Authorization: "Bearer " + creds.apiKey,
+    };
+    const init = { method: method, mode: "cors", headers: headers };
+    if (bodyObj != null && method !== "GET" && method !== "HEAD") {
+      headers["Content-Type"] = "application/json";
+      init.body = JSON.stringify(bodyObj);
+    }
+    const res = await fetch(url, init);
+    const text = await res.text();
+    let json = null;
+    try {
+      json = text ? JSON.parse(text) : null;
+    } catch (e) {
+      json = { raw: text };
+    }
+    return { ok: res.ok, status: res.status, json, text };
+  }
+
+  async function runpodGetPod(creds) {
+    return runpodFetch(creds, "GET", "/pods/" + encodeURIComponent(creds.podId));
+  }
+
+  async function runpodStartPod(creds) {
+    return runpodFetch(creds, "POST", "/pods/" + encodeURIComponent(creds.podId) + "/start");
+  }
+
+  async function runpodStopPod(creds) {
+    return runpodFetch(creds, "POST", "/pods/" + encodeURIComponent(creds.podId) + "/stop");
+  }
+
+  function runpodErrMessage(res) {
+    if (!res) return "未知错误";
+    const j = res.json;
+    if (j && typeof j === "object") {
+      if (j.error) return typeof j.error === "string" ? j.error : JSON.stringify(j.error);
+      if (j.message) return String(j.message);
+      if (j.description) return String(j.description);
+    }
+    if (res.status === 401) return "API Key 无效或无权访问";
+    if (res.status === 404) return "找不到该机器码对应的 Pod";
+    if (res.text) return res.text.slice(0, 200);
+    return "HTTP " + res.status;
+  }
+
+  async function runpodFillPublicUrlOnly() {
+    try {
+      const creds = requireRunpodCreds();
+      const url = runpodPublicUrl(creds.podId, creds.port);
+      fillComfyUrl(url);
+      setRunpodStatus("已填入公网: " + url, "ok");
+      setConnStatus("已填入 RunPod 公网 · 可点检测连接", "");
+      return url;
+    } catch (e) {
+      setRunpodStatus("失败: " + (e && e.message ? e.message : String(e)), "err");
+      return "";
+    }
+  }
+
+  async function runpodBootAndWait() {
+    let creds;
+    try {
+      creds = requireRunpodCreds();
+    } catch (e) {
+      setRunpodStatus("失败: " + e.message, "err");
+      return false;
+    }
+
+    const publicUrl = runpodPublicUrl(creds.podId, creds.port);
+    fillComfyUrl(publicUrl);
+
+    setRunpodStatus("查询 Pod 状态…", "run");
+    setConnStatus("RunPod · 查询中…", "run");
+
+    let info;
+    try {
+      info = await runpodGetPod(creds);
+    } catch (e) {
+      const msg = e && e.message ? e.message : String(e);
+      const corsHint =
+        /Failed to fetch|NetworkError|CORS/i.test(msg)
+          ? "（直连 API 失败，可填「API 代理」Worker，见 workers/）"
+          : "";
+      setRunpodStatus("查询失败: " + msg + corsHint, "err");
+      setConnStatus("RunPod 查询失败", "err");
+      return false;
+    }
+    if (!info.ok) {
+      setRunpodStatus("查询失败: " + runpodErrMessage(info), "err");
+      setConnStatus("RunPod 查询失败", "err");
+      return false;
+    }
+
+    const desired = (info.json && info.json.desiredStatus) || "";
+    setRunpodStatus("Pod 状态: " + (desired || "?") + " · 机器码 " + creds.podId, "run");
+
+    if (desired !== "RUNNING") {
+      setRunpodStatus("正在开机（resume）…", "run");
+      setConnStatus("RunPod · 开机中…", "run");
+      let startRes;
+      try {
+        startRes = await runpodStartPod(creds);
+      } catch (e) {
+        const msg = e && e.message ? e.message : String(e);
+        setRunpodStatus("开机失败: " + msg, "err");
+        setConnStatus("RunPod 开机失败", "err");
+        return false;
+      }
+      // 200 empty body is success; some errors still return JSON
+      if (!startRes.ok && startRes.status !== 200) {
+        // already running etc — re-check
+        const again = await runpodGetPod(creds).catch(function () { return null; });
+        const st = again && again.json && again.json.desiredStatus;
+        if (st !== "RUNNING") {
+          setRunpodStatus("开机失败: " + runpodErrMessage(startRes), "err");
+          setConnStatus("RunPod 开机失败", "err");
+          return false;
+        }
+      }
+    } else {
+      setRunpodStatus("Pod 已在运行 · 等待 Comfy…", "run");
+    }
+
+    // Poll desiredStatus + Comfy /system_stats
+    const deadline = Date.now() + 180000;
+    let attempt = 0;
+    let podRunning = desired === "RUNNING";
+    while (Date.now() < deadline) {
+      attempt += 1;
+      if (!podRunning && attempt % 2 === 1) {
+        try {
+          const g = await runpodGetPod(creds);
+          if (g.ok && g.json && g.json.desiredStatus === "RUNNING") {
+            podRunning = true;
+          } else if (g.ok && g.json && g.json.desiredStatus === "TERMINATED") {
+            setRunpodStatus("Pod 已终止，无法开机", "err");
+            setConnStatus("RunPod Pod 已终止", "err");
+            return false;
+          }
+        } catch (e) {}
+      }
+      setRunpodStatus(
+        (podRunning ? "等待 Comfy 就绪…" : "等待 Pod RUNNING…") +
+          " (" +
+          attempt +
+          ") · " +
+          publicUrl,
+        "run"
+      );
+      setConnStatus("等待 Comfy… (" + attempt + ")", "run");
+      try {
+        const res = await fetch(publicUrl + "/system_stats", {
+          method: "GET",
+          mode: "cors",
+        });
+        if (res.ok) {
+          const ok = await connectComfy();
+          if (ok) {
+            setRunpodStatus("就绪 · " + publicUrl, "ok");
+            return true;
+          }
+        }
+      } catch (e) {
+        /* keep polling — proxy may 502 while container boots */
+      }
+      await sleep(3000);
+    }
+    setRunpodStatus(
+      "已请求开机，但 Comfy 公网仍未连通（超时）。确认端口 " +
+        creds.port +
+        " 已暴露且 Comfy 已启动，再点检测连接。",
+      "err"
+    );
+    setConnStatus("RunPod 已开机，Comfy 超时未通", "err");
+    return false;
+  }
+
+  async function runpodStopAndConfirm() {
+    let creds;
+    try {
+      creds = requireRunpodCreds();
+    } catch (e) {
+      setRunpodStatus("失败: " + e.message, "err");
+      return false;
+    }
+    if (
+      !confirm(
+        "确定关 RunPod（机器码 " +
+          creds.podId +
+          "）？会停止计费，公网失效，下次需再开机。"
+      )
+    ) {
+      return false;
+    }
+    setRunpodStatus("正在关 Pod…", "run");
+    try {
+      const res = await runpodStopPod(creds);
+      if (!res.ok && res.status !== 200) {
+        setRunpodStatus("关机失败: " + runpodErrMessage(res), "err");
+        return false;
+      }
+      connectedOk = false;
+      closeWs();
+      setRunpodStatus("Pod 已停止 · " + creds.podId, "ok");
+      setConnStatus("未连接 · RunPod 已关机", "");
+      return true;
+    } catch (e) {
+      setRunpodStatus("关机失败: " + (e && e.message ? e.message : String(e)), "err");
+      return false;
+    }
+  }
+
   function getStartApiBase() {
+
     const el = $("startApiUrl");
     const raw = ((el && el.value) || "").trim().replace(/\/+$/, "");
     return raw;
@@ -2425,6 +2778,52 @@
     const savedApi = localStorage.getItem("comfy_phone_start_api");
     if (savedApi && $("startApiUrl") && !$("startApiUrl").value) {
       $("startApiUrl").value = savedApi;
+    }
+
+    loadRunpodFields();
+    setProvider(getProvider());
+    if ($("tabProvAutodl")) {
+      $("tabProvAutodl").addEventListener("click", () => setProvider("autodl"));
+    }
+    if ($("tabProvRunpod")) {
+      $("tabProvRunpod").addEventListener("click", () => setProvider("runpod"));
+    }
+    ["runpodApiKey", "runpodPodId", "runpodPort", "runpodProxy"].forEach((id) => {
+      const el = $(id);
+      if (!el) return;
+      el.addEventListener("change", persistRunpodFields);
+      el.addEventListener("blur", persistRunpodFields);
+    });
+    if ($("btnRunpodStart")) {
+      $("btnRunpodStart").addEventListener("click", () => {
+        const btn = $("btnRunpodStart");
+        if (btn) btn.disabled = true;
+        runpodBootAndWait()
+          .catch((e) => {
+            setRunpodStatus(
+              "失败: " + (e && e.message ? e.message : String(e)),
+              "err"
+            );
+          })
+          .finally(() => {
+            if (btn) btn.disabled = false;
+          });
+      });
+    }
+    if ($("btnRunpodFillUrl")) {
+      $("btnRunpodFillUrl").addEventListener("click", () => {
+        runpodFillPublicUrlOnly();
+      });
+    }
+    if ($("btnRunpodStop")) {
+      $("btnRunpodStop").addEventListener("click", () => {
+        const btn = $("btnRunpodStop");
+        if (btn) btn.disabled = true;
+        runpodStopAndConfirm()
+          .finally(() => {
+            if (btn) btn.disabled = false;
+          });
+      });
     }
 
     function persistBaseFrom(id) {
