@@ -692,7 +692,10 @@
       <input id="tgToken" type="password" autocomplete="off" placeholder="123456:AAH…（BotFather 的 API Token）" />
       <label for="tgChatId">Chat ID</label>
       <input id="tgChatId" type="text" inputmode="numeric" autocomplete="off" placeholder="5407949298" />
-      <p class="hint-inline">先打开 <a href="https://t.me/vrenybot" target="_blank" rel="noopener">@vrenybot</a> 发一句 <code>/start</code>，再在本页粘贴 BotFather 给的 token 和你的 chat id（占位示例 5407949298）。图只发到你的私聊，token 存在本机浏览器，不会写进仓库。</p>
+      <label for="tgProxy">Telegram 代理（国内必填）</label>
+      <input id="tgProxy" type="url" autocomplete="off" placeholder="https://comfy-telegram-proxy.xxx.workers.dev" />
+      <button type="button" class="btn btn-ghost" id="btnTgTest" style="margin-top:8px;width:100%">测试 Telegram 连接</button>
+      <p class="hint-inline">先打开 <a href="https://t.me/vrenybot" target="_blank" rel="noopener">@vrenybot</a> 发一句 <code>/start</code>，再粘贴 BotFather 的 token 与 chat id。国内手机多半直连不了 <code>api.telegram.org</code>，需部署仓库里 <code>workers/telegram-proxy.js</code>（Cloudflare Worker，免费），把地址填到「Telegram 代理」。图只发到你的私聊；token 存在本机，不会写进仓库。</p>
     </div>
 
     <div class="status" id="status">就绪</div>
@@ -734,7 +737,7 @@
       「存入仓库」会排队上传，切到抖音等 App 回来会自动继续，底部进度条常显；登录 GitHub 打开
       <a href="https://github.com/lizhien1111/comfy-phone-gallery" target="_blank" rel="noopener">comfy-phone-gallery</a>
       的 README 或 <code>gallery/</code> 下的 png 即可看图。
-      「发到 Telegram」同样排队+进度；需先打开 <a href="https://t.me/vrenybot" target="_blank" rel="noopener">@vrenybot</a>，在设置里填 Bot token 与 chat id。
+      「发到 Telegram」同样排队+进度；需打开 <a href="https://t.me/vrenybot" target="_blank" rel="noopener">@vrenybot</a>，填 token、chat id，国内还需填 Cloudflare Worker 代理（见仓库 <code>workers/</code>）。
     </p>
     </section>
   </div>

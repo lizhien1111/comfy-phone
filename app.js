@@ -469,9 +469,11 @@
   const LS_SAVE_TG = "comfy_phone_save_telegram";
   const LS_TG_TOKEN = "comfy_phone_telegram_bot_token";
   const LS_TG_CHAT = "comfy_phone_telegram_chat_id";
+  const LS_TG_PROXY = "comfy_phone_telegram_proxy";
   /** Placeholder suggestion only — never treat as hard-coded default in logic */
   const TG_CHAT_PLACEHOLDER = "5407949298";
   const TG_PHOTO_MAX = 10 * 1024 * 1024;
+  const TG_API_DIRECT = "https://api.telegram.org";
 
   function syncTgSettingsUi() {
     const chk = $("chkSaveTelegram");
@@ -492,6 +494,8 @@
       chat.value = localStorage.getItem(LS_TG_CHAT) || "";
       chat.placeholder = TG_CHAT_PLACEHOLDER;
     }
+    const proxy = $("tgProxy");
+    if (proxy) proxy.value = localStorage.getItem(LS_TG_PROXY) || "";
     syncTgSettingsUi();
   }
 
@@ -512,6 +516,13 @@
       if (v) localStorage.setItem(LS_TG_CHAT, v);
       else localStorage.removeItem(LS_TG_CHAT);
     }
+    const proxy = $("tgProxy");
+    if (proxy) {
+      let v = (proxy.value || "").trim().replace(/\/+$/, "");
+      if (v) localStorage.setItem(LS_TG_PROXY, v);
+      else localStorage.removeItem(LS_TG_PROXY);
+      proxy.value = v;
+    }
     syncTgSettingsUi();
   }
 
@@ -531,9 +542,75 @@
     ).trim();
   }
 
+  /** Optional Cloudflare Worker / self-host relay base (no trailing slash). */
+  function getTgProxyBase() {
+    return (
+      (($("tgProxy") && $("tgProxy").value) ||
+        localStorage.getItem(LS_TG_PROXY) ||
+        "")
+    )
+      .trim()
+      .replace(/\/+$/, "");
+  }
+
+  function tgApiBase() {
+    return getTgProxyBase() || TG_API_DIRECT;
+  }
+
   function tgApiUrl(method) {
     const token = getTgToken();
-    return "https://api.telegram.org/bot" + token + "/" + method;
+    return tgApiBase() + "/bot" + token + "/" + method;
+  }
+
+  function normalizeTgNetworkError(msg) {
+    const m = String(msg || "");
+    const low = m.toLowerCase();
+    if (
+      low.indexOf("failed to fetch") >= 0 ||
+      low.indexOf("networkerror") >= 0 ||
+      low.indexOf("load failed") >= 0 ||
+      low.indexOf("network request failed") >= 0
+    ) {
+      if (!getTgProxyBase()) {
+        return (
+          "连不上 api.telegram.org（国内常见）。请在设置填 Cloudflare Worker 代理，见仓库 workers/"
+        );
+      }
+      return "代理也连不上：" + m.slice(0, 100);
+    }
+    return m.slice(0, 160);
+  }
+
+  async function testTelegramConnection() {
+    persistTgSettings();
+    const token = getTgToken();
+    if (!token) {
+      setStatus("请先填写 Bot Token", "err");
+      return;
+    }
+    setStatus("正在测试 Telegram…", "");
+    try {
+      const res = await fetch(tgApiUrl("getMe"), { method: "GET", mode: "cors" });
+      let data = null;
+      try {
+        data = await res.json();
+      } catch (e) {}
+      if (res.ok && data && data.ok && data.result) {
+        const u = data.result.username || data.result.first_name || "bot";
+        const via = getTgProxyBase() ? "经代理" : "直连";
+        setStatus("Telegram 通（" + via + "）· @" + u, "ok");
+        return;
+      }
+      const detail =
+        (data && data.description) || "HTTP " + res.status;
+      setStatus("Telegram 失败: " + String(detail).slice(0, 160), "err");
+    } catch (e) {
+      setStatus(
+        "Telegram 失败: " +
+          normalizeTgNetworkError(e && e.message ? e.message : String(e)),
+        "err"
+      );
+    }
   }
 
   async function uploadBlobToTelegramWithMeta(blob, filename, caption) {
@@ -549,12 +626,13 @@
       fd.append("chat_id", chatId);
       fd.append(field, blob, safeName);
       if (cap) fd.append("caption", cap);
-      const res = await fetch(tgApiUrl(method), { method: "POST", body: fd });
+      const res = await fetch(tgApiUrl(method), { method: "POST", body: fd, mode: "cors" });
       let detail = "HTTP " + res.status;
       let data = null;
       try {
         data = await res.json();
         if (data && data.description) detail = String(data.description).slice(0, 160);
+        else if (data && data.ok === false) detail = "Telegram rejected";
       } catch (e) {}
       return { res, data, detail };
     }
@@ -584,7 +662,7 @@
       return { ok: false, error: r2.detail };
     } catch (e) {
       const msg = e && e.message ? e.message : String(e);
-      return { ok: false, error: msg.slice(0, 160) };
+      return { ok: false, error: normalizeTgNetworkError(msg) };
     }
   }
 
@@ -721,6 +799,7 @@
     const done = state.done || 0;
     const total = state.total || 0;
     const dest = state.dest || "github";
+    const lastError = (state.lastError || "").trim();
     const label = dest === "telegram" ? "发到 Telegram" : "存入仓库";
     const active = pending + uploading + errors > 0;
     if (!active && done === 0) {
@@ -742,8 +821,16 @@
         (current ? " · " + current : "") +
         (document.hidden ? " · 后台排队中" : " · 上传中");
       if (errors) msg += " · 失败 " + errors;
+      if (errors && lastError) msg += " · " + lastError;
     } else if (errors) {
-      msg = label + "完成：成功 " + done + " · 失败 " + errors + "（可点重试）";
+      msg =
+        label +
+        "完成：成功 " +
+        done +
+        " · 失败 " +
+        errors +
+        (lastError ? " · " + lastError : "") +
+        "（可点重试）";
     } else if (dest === "telegram") {
       msg = "已发到 Telegram " + done + " 张 · 打开 @vrenybot 私聊可看";
     } else {
@@ -786,6 +873,9 @@
       all.find((x) => x.status === "uploading") ||
       all.find((x) => x.status === "pending") ||
       all.find((x) => x.status === "error");
+    const errRow = all
+      .filter((x) => x.status === "error" && x.error)
+      .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
     const total =
       uploadSessionTotal ||
       pending + uploading + errors + uploadSessionDone;
@@ -797,6 +887,7 @@
       done: uploadSessionDone,
       total,
       dest: cur && cur.dest === "telegram" ? "telegram" : "github",
+      lastError: errRow ? String(errRow.error).slice(0, 120) : "",
     });
   }
 
@@ -1154,11 +1245,15 @@
           uploadSessionDone++;
           uploadSessionFail = Math.max(0, uploadSessionFail);
         } else {
+          const errMsg = result.error || "upload failed";
           await G.updateUpload(job.id, {
             status: "error",
-            error: result.error || "upload failed",
+            error: errMsg,
           });
           uploadSessionFail++;
+          if (dest === "telegram") {
+            setStatus("Telegram: " + String(errMsg).slice(0, 160), "err");
+          }
         }
         // brief yield so UI paints; also friendlier to API rate limits
         await new Promise((r) => setTimeout(r, 180));
@@ -2343,6 +2438,17 @@
     if ($("tgChatId")) {
       $("tgChatId").addEventListener("change", persistTgSettings);
       $("tgChatId").addEventListener("blur", persistTgSettings);
+    }
+    if ($("tgProxy")) {
+      $("tgProxy").addEventListener("change", persistTgSettings);
+      $("tgProxy").addEventListener("blur", persistTgSettings);
+    }
+    if ($("btnTgTest")) {
+      $("btnTgTest").addEventListener("click", () => {
+        testTelegramConnection().catch((e) =>
+          setStatus("Telegram 测试失败: " + (e && e.message ? e.message : String(e)), "err")
+        );
+      });
     }
 
     ensureUploadBanner();
