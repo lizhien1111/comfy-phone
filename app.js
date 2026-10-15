@@ -1480,16 +1480,16 @@
     const G = window.ComfyPhoneGallery;
     if (!G) return;
     if (!gallerySelectMode) {
-      setStatus("请先点「选择」，再勾选要删的图片", "err");
+      setStatus("请先选择要删除的图片", "err");
       return;
     }
     const items = await getSelectedGalleryItems();
     if (!items.length) {
-      setStatus("请先选择图库里的图片", "err");
+      setStatus("请先选择要删除的图片", "err");
       return;
     }
     const n = items.length;
-    if (!confirm("确定删除已选的 " + n + " 张图片？此操作不可恢复。")) return;
+    if (!confirm("确定删除选中的 " + n + " 张？")) return;
     try {
       for (const item of items) {
         await G.deleteImage(item.id);
@@ -1502,22 +1502,6 @@
       setStatus("已删除 " + n + " 张", "ok");
     } catch (e) {
       alert("删除失败: " + (e && e.message ? e.message : e));
-    }
-  }
-
-  async function clearEntireGallery() {
-    const G = window.ComfyPhoneGallery;
-    if (!G) return;
-    if (!confirm("确定清空本机图库全部图片？此操作不可恢复。")) return;
-    try {
-      await G.clearAll();
-      selectedGalleryIds.clear();
-      gallerySelectMode = false;
-      closeLightbox();
-      await renderGallery();
-      setStatus("已清空图库", "ok");
-    } catch (e) {
-      alert("清空失败: " + (e && e.message ? e.message : e));
     }
   }
 
@@ -2280,41 +2264,8 @@
       $("seed").value = String(randomSeed());
     });
     if ($("btnClearGallery")) {
-      const delBtn = $("btnClearGallery");
-      let longPressTimer = null;
-      let longPressFired = false;
-      delBtn.addEventListener("click", (ev) => {
-        if (longPressFired) {
-          longPressFired = false;
-          ev.preventDefault();
-          return;
-        }
+      $("btnClearGallery").addEventListener("click", () => {
         deleteSelectedGallery().catch((e) => console.error(e));
-      });
-      const startLp = (ev) => {
-        longPressFired = false;
-        if (longPressTimer) clearTimeout(longPressTimer);
-        longPressTimer = setTimeout(() => {
-          longPressFired = true;
-          longPressTimer = null;
-          clearEntireGallery().catch((e) => console.error(e));
-        }, 900);
-      };
-      const cancelLp = () => {
-        if (longPressTimer) {
-          clearTimeout(longPressTimer);
-          longPressTimer = null;
-        }
-      };
-      delBtn.addEventListener("touchstart", startLp, { passive: true });
-      delBtn.addEventListener("mousedown", startLp);
-      delBtn.addEventListener("touchend", cancelLp);
-      delBtn.addEventListener("touchcancel", cancelLp);
-      delBtn.addEventListener("mouseup", cancelLp);
-      delBtn.addEventListener("mouseleave", cancelLp);
-      delBtn.addEventListener("contextmenu", (ev) => {
-        ev.preventDefault();
-        clearEntireGallery().catch((e) => console.error(e));
       });
     }
     if ($("btnPullImages")) $("btnPullImages").addEventListener("click", pullNewImages);
