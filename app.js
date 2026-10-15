@@ -473,6 +473,7 @@
   }
 
   const LS_SAVE_TG = "comfy_phone_save_telegram";
+  const LS_DEL_AFTER_ALBUM = "comfy_phone_del_after_album";
   const LS_TG_TOKEN = "comfy_phone_telegram_bot_token";
   const LS_TG_CHAT = "comfy_phone_telegram_chat_id";
   const LS_TG_PROXY = "comfy_phone_telegram_proxy";
@@ -1612,6 +1613,163 @@
     return { mode: "fallback", count: 0, index: 0 };
   }
 
+  function wantsDeleteAfterAlbum() {
+    const chk = $("chkDeleteAfterAlbum");
+    if (chk) return !!chk.checked;
+    // default ON when checkbox missing / first visit
+    const v = localStorage.getItem(LS_DEL_AFTER_ALBUM);
+    return v !== "0";
+  }
+
+  function loadDeleteAfterAlbumSetting() {
+    const chk = $("chkDeleteAfterAlbum");
+    if (!chk) return;
+    const v = localStorage.getItem(LS_DEL_AFTER_ALBUM);
+    // default checked (ON) unless user explicitly turned off
+    chk.checked = v !== "0";
+  }
+
+  function persistDeleteAfterAlbumSetting() {
+    const chk = $("chkDeleteAfterAlbum");
+    if (!chk) return;
+    localStorage.setItem(LS_DEL_AFTER_ALBUM, chk.checked ? "1" : "0");
+  }
+
+  /**
+   * Delete matching Comfy output/temp files on the connected server.
+   * Requires custom_nodes/vreny_output_api (POST /delete_output).
+   * Falls back to a few known third-party delete routes.
+   */
+  async function deleteServerOutputFiles(items) {
+    const list = (items || []).filter((x) => x && x.filename);
+    if (!list.length) return { ok: false, skipped: true, reason: "no_files" };
+    let baseOk = false;
+    try {
+      requireBase();
+      baseOk = true;
+    } catch (e) {
+      return { ok: false, skipped: true, reason: "not_connected", error: e.message };
+    }
+
+    const files = list.map((it) => ({
+      filename: it.filename,
+      subfolder: it.subfolder || "",
+      type: it.comfyType || it.type || "output",
+    }));
+
+    // Primary: our extension
+    try {
+      const res = await fetch(apiUrl("/delete_output"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ files }),
+        mode: "cors",
+      });
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        return {
+          ok: true,
+          via: "delete_output",
+          removed: data.removed != null ? data.removed : files.length,
+          bytes: data.bytes || 0,
+          data,
+        };
+      }
+      if (res.status !== 404) {
+        const t = await res.text().catch(() => "");
+        return {
+          ok: false,
+          via: "delete_output",
+          status: res.status,
+          error: t.slice(0, 200) || "HTTP " + res.status,
+        };
+      }
+    } catch (e) {
+      // fall through to alternates
+      console.warn("delete_output failed", e);
+    }
+
+    // Alternates: comfyui_extra_api / ComfyUI-api-tools (one file at a time)
+    let removed = 0;
+    let lastErr = "";
+    for (const f of files) {
+      const name = encodeURIComponent(f.filename);
+      const alts = [
+        "/comfyapi/v1/output-images/" + name + "?temp=" + (f.type === "temp" ? "true" : "false"),
+        "/api-tools/v1/images/output/" + name + "?temp=" + (f.type === "temp" ? "true" : "false"),
+      ];
+      let done = false;
+      for (const path of alts) {
+        try {
+          const res = await fetch(apiUrl(path), { method: "DELETE", mode: "cors" });
+          if (res.ok || res.status === 204) {
+            removed++;
+            done = true;
+            break;
+          }
+          lastErr = "HTTP " + res.status;
+        } catch (e) {
+          lastErr = e && e.message ? e.message : String(e);
+        }
+      }
+      if (!done) {
+        /* keep trying remaining files */
+      }
+    }
+    if (removed > 0) {
+      return { ok: true, via: "alt", removed, bytes: 0 };
+    }
+    return {
+      ok: false,
+      skipped: false,
+      reason: "no_api",
+      error:
+        lastErr ||
+        "服务器无删除接口（需安装 custom_nodes/vreny_output_api 并重启 Comfy）",
+      baseOk,
+    };
+  }
+
+  async function maybeDeleteAfterAlbum(items, sharedCount) {
+    if (!wantsDeleteAfterAlbum()) {
+      return { skipped: true, reason: "opt_out" };
+    }
+    const n = sharedCount != null ? sharedCount : (items || []).length;
+    if (!n || !items || !items.length) return { skipped: true, reason: "none" };
+    const toDelete = items.slice(0, n);
+    setStatus("正在删除服务器原图 " + toDelete.length + " 张…", "run");
+    const result = await deleteServerOutputFiles(toDelete);
+    return result;
+  }
+
+  function formatDeleteResult(shareMsg, delResult) {
+    if (!delResult || delResult.skipped) {
+      if (delResult && delResult.reason === "opt_out") return shareMsg;
+      if (delResult && delResult.reason === "not_connected") {
+        return shareMsg + " · 未连 Comfy，服务器原图未删";
+      }
+      return shareMsg;
+    }
+    if (delResult.ok) {
+      const mb =
+        delResult.bytes != null && delResult.bytes > 0
+          ? " / " + (Number(delResult.bytes) / 1048576).toFixed(1) + "MB"
+          : "";
+      return (
+        shareMsg +
+        " · 已删服务器原图 " +
+        (delResult.removed != null ? delResult.removed : "?") +
+        " 张" +
+        mb
+      );
+    }
+    return (
+      shareMsg +
+      " · 服务器原图未删: " +
+      (delResult.error || delResult.reason || "失败")
+    );
+  }
+
   async function saveSelectedAlbum() {
     if (!gallerySelectMode) {
       setStatus("请先点「选择」，再勾选图片", "err");
@@ -1628,29 +1786,32 @@
     );
     const result = await shareImageFiles(files);
     if (result.mode === "share") {
-      setStatus(
-        "已打开系统分享（" + result.count + " 张）· 请选「存储图像」或「存储到相册」",
-        "ok"
-      );
+      const baseMsg =
+        "已分享/存相册（" + result.count + " 张）· 若未自动进相册请再选「存储图像」";
+      const del = await maybeDeleteAfterAlbum(items, result.count);
+      setStatus(formatDeleteResult(baseMsg, del), del && del.ok === false && !del.skipped ? "err" : "ok");
       return;
     }
     if (result.mode === "abort") {
-      setStatus(
-        result.count > 0
-          ? "已取消（已分享 " + result.count + " 张）"
-          : "已取消",
-        ""
-      );
+      if (result.count > 0) {
+        const baseMsg = "已取消（已分享 " + result.count + " 张）";
+        const del = await maybeDeleteAfterAlbum(items, result.count);
+        setStatus(formatDeleteResult(baseMsg, del), "");
+      } else {
+        setStatus("已取消", "");
+      }
       return;
     }
     // Fallback: open first remaining image in lightbox — long-press → 存储图像
+    // Do NOT delete server files: we cannot know if long-press save succeeded.
     const idx = result.index != null ? result.index : 0;
     const left = items[idx];
     if (left) {
       openLightbox(left);
       setStatus(
         "当前浏览器不支持一键存相册。请长按大图 →「存储图像」" +
-          (items.length > 1 ? "（其余请在图库逐张打开）" : ""),
+          (items.length > 1 ? "（其余请在图库逐张打开）" : "") +
+          "；长按保存不会自动删服务器原图",
         "err"
       );
     } else {
@@ -1880,6 +2041,8 @@
           await saveToGallery({
             blob,
             filename,
+            subfolder: img.subfolder || "",
+            comfyType: img.type || "output",
             prompt: "",
             seed: null,
             width: (img.metadata && img.metadata.width) || null,
@@ -2431,6 +2594,8 @@
         await saveToGallery({
           blob,
           filename,
+          subfolder: (imgInfo && imgInfo.subfolder) || "",
+          comfyType: (imgInfo && imgInfo.type) || "output",
           prompt,
           seed,
           width,
@@ -3178,18 +3343,27 @@
     $("btnLbClose").addEventListener("click", closeLightbox);
     $("btnLbSave").addEventListener("click", () => {
       if (!lightboxItem) return;
+      const item = lightboxItem;
       const file = blobToImageFile(
-        lightboxItem.blob,
-        lightboxItem.filename || "comfy_phone.png"
+        item.blob,
+        item.filename || "comfy_phone.png"
       );
       shareImageFiles([file])
-        .then((result) => {
+        .then(async (result) => {
           if (result.mode === "share") {
-            setStatus("已打开系统分享 · 请选「存储图像」或「存储到相册」", "ok");
+            const baseMsg = "已分享/存相册 · 若未自动进相册请再选「存储图像」";
+            const del = await maybeDeleteAfterAlbum([item], result.count || 1);
+            setStatus(
+              formatDeleteResult(baseMsg, del),
+              del && del.ok === false && !del.skipped ? "err" : "ok"
+            );
           } else if (result.mode === "abort") {
             setStatus("已取消", "");
           } else {
-            setStatus("请长按大图 →「存储图像」保存到相册", "err");
+            setStatus(
+              "请长按大图 →「存储图像」保存到相册（长按不会自动删服务器原图）",
+              "err"
+            );
           }
         })
         .catch((e) =>

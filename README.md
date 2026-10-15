@@ -117,12 +117,33 @@ python3 cors_proxy.py 8765
 - 启动页：AutoDL / RunPod 切换；RunPod 填 API Key + 机器码一键开机；检测连接
 - WebSocket 实时「出图中 x/y 步」（失败则 `/history` 轮询）
 - IndexedDB 图库（清浏览器缓存会丢）
+- 「存到相册」成功后可选删除 Comfy 服务器 `output` 原图（需装下方扩展）
 - Lustify Krea Turbo 默认：30 步、1280×2560、CFG 1
 
 ## 注意
 
 - 实例关机后启动接口与 Comfy 都不可用；用完记得关 AutoDL。
 - 图库在本机浏览器，换机 / 清缓存不会带走。
+
+
+
+## 删服务器原图（省网络卷空间）
+
+手机页勾选 **存相册成功后删除服务器原图**（默认开）后，系统分享成功会调用 Comfy：
+
+`POST /delete_output` `{ "files": [{ "filename", "subfolder", "type" }] }`
+
+需在 Comfy 里安装本仓库扩展并**重启**：
+
+```bash
+# RunPod 卷示例
+bash custom_nodes/vreny_output_api/install_on_volume.sh /workspace/ComfyUI
+# 然后重启 Comfy（重新跑 start_comfy.sh）
+curl -s https://<pod>-8188.proxy.runpod.net/vreny_output_api
+# → {"ok":true,"name":"vreny_output_api"}
+```
+
+未装扩展时，页会提示原图未删；「清理 Comfy」里的整目录清理同样依赖该扩展的 `POST /clean_output`。
 
 ## 发到 Telegram（国内需代理）
 

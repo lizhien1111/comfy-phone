@@ -45,6 +45,8 @@
     const item = {
       id,
       filename: record.filename || "comfy_phone.png",
+      subfolder: record.subfolder || "",
+      comfyType: record.comfyType || record.type || "output",
       blob: record.blob,
       prompt: record.prompt || "",
       seed: record.seed != null ? record.seed : null,

@@ -825,6 +825,10 @@
         <button type="button" class="btn btn-danger" id="btnClearGallery" style="margin-top:0;width:auto" title="只删除勾选的图片">删除</button>
       </span>
     </div>
+    <label class="chk-label" style="margin:8px 0 4px;display:flex" title="需 Comfy 已装 vreny_output_api 扩展">
+      <input type="checkbox" id="chkDeleteAfterAlbum" checked />
+      存相册成功后删除服务器原图（省卷空间）
+    </label>
     <div class="gallery-grid" id="galleryGrid"></div>
     <div class="gallery-empty" id="galleryEmpty" hidden>还没有图，生成后会自动进图库</div>
 
@@ -832,7 +836,7 @@
       本页可放任意静态托管；填 AutoDL/Comfy 公网地址（不要加端口）后点「连接」。
       跨域常被 CORS 拦：需 Comfy 开 CORS（如 --enable-cors-header）、或用 nginx / Cloudflare Worker / 本目录 <code>cors_proxy.py</code> 同源反代。
       可点「导入外部 PNG 工作流」从相册/文件选任意 Comfy PNG 读元数据；生成显示「出图中 x/y 步」；图保存在本机浏览器图库，清缓存会丢；实例关机前 Comfy output 也有原图。
-      图库点「选择」勾选后，点「存到相册」会打开系统分享（选「存储图像」/「存储到相册」）；不支持分享时请打开大图长按保存。
+      图库点「选择」勾选后，点「存到相册」会打开系统分享（选「存储图像」/「存储到相册」）；勾选「存相册成功后删除服务器原图」且分享成功时，会删 Comfy 卷上对应 output 文件（需已装 <code>custom_nodes/vreny_output_api</code>）。不支持分享时请打开大图长按保存（长按不会自动删服务器文件）。
     </p>
     </section>
   </div>
@@ -848,10 +852,10 @@
     <div class="lightbox-info" id="lightboxInfo"></div>
   </div>
 
-  <script src="png-meta.js?v=png-label-20261015c"></script>
-  <script src="workflow.js?v=png-label-20261015c"></script>
-  <script src="gallery.js?v=png-label-20261015c"></script>
-  <script src="app.js?v=png-label-20261015c"></script>
+  <script src="png-meta.js?v=album-del-20261015a"></script>
+  <script src="workflow.js?v=album-del-20261015a"></script>
+  <script src="gallery.js?v=album-del-20261015a"></script>
+  <script src="app.js?v=album-del-20261015a"></script>
 
   <script>
     function googleTranslateElementInit() {
