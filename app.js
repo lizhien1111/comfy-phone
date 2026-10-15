@@ -25,13 +25,15 @@
   let lightboxUrl = null;
   let lightboxItem = null;
 
-  /** Durable GitHub upload queue pump */
+  /** Durable GitHub / Telegram upload queue pump (UI retired — keep off) */
+  const UPLOAD_FEATURES_ENABLED = false;
   let uploadPumpRunning = false;
   let uploadBannerHideTimer = null;
   let uploadSessionDone = 0;
   let uploadSessionFail = 0;
   let uploadSessionTotal = 0;
   let lastUploadedPaths = [];
+  let retiredUploadsCleared = false;
 
   /** Gallery multi-select only active after user taps 「选择」 */
   let gallerySelectMode = false;
@@ -814,16 +816,29 @@
       '<div class="upload-banner-bar"><div class="upload-banner-fill" id="uploadBannerFill"></div></div>' +
       '<div class="upload-banner-actions">' +
       '<button type="button" class="btn btn-ghost" id="btnUploadRetry" hidden style="min-height:36px;padding:0 10px;font-size:0.8rem;width:auto;margin:0">重试失败</button>' +
+      '<button type="button" class="btn btn-ghost" id="btnUploadDismiss" style="min-height:36px;padding:0 10px;font-size:0.8rem;width:auto;margin:0">关闭</button>' +
       '<a class="upload-banner-link" id="uploadBannerLink" href="https://github.com/lizhien1111/comfy-phone-gallery" target="_blank" rel="noopener">在 GitHub 看图</a>' +
       "</div></div>";
     document.body.appendChild(el);
     const retry = $("btnUploadRetry");
     if (retry) {
       retry.addEventListener("click", () => {
+        if (!UPLOAD_FEATURES_ENABLED) return;
         const G = window.ComfyPhoneGallery;
         if (!G) return;
         G.retryFailedUploads()
           .then(() => kickUploadPump())
+          .catch((e) => console.error(e));
+      });
+    }
+    const dismiss = $("btnUploadDismiss");
+    if (dismiss) {
+      dismiss.addEventListener("click", () => {
+        clearRetiredUploadJobs()
+          .then(() => {
+            el.hidden = true;
+            setStatus("已关闭上传提示", "ok");
+          })
           .catch((e) => console.error(e));
       });
     }
@@ -846,7 +861,7 @@
     const lastError = (state.lastError || "").trim();
     const label = dest === "telegram" ? "发到 Telegram" : "存入仓库";
     const active = pending + uploading + errors > 0;
-    if (!active && done === 0) {
+    if (!UPLOAD_FEATURES_ENABLED || (!active && done === 0)) {
       el.hidden = true;
       return;
     }
@@ -894,12 +909,19 @@
         link.textContent = "在 GitHub 看图";
       }
     }
-    if (retry) retry.hidden = !(errors > 0 && pending + uploading === 0);
-    if (!active && errors === 0) {
+    if (retry) retry.hidden = !(UPLOAD_FEATURES_ENABLED && errors > 0 && pending + uploading === 0);
+    if (link) link.hidden = !UPLOAD_FEATURES_ENABLED;
+    // Auto-hide success quickly; also dismiss stuck error banners (telegram leftovers)
+    if (!active || (errors > 0 && pending + uploading === 0)) {
       if (uploadBannerHideTimer) clearTimeout(uploadBannerHideTimer);
+      const delay = errors > 0 ? 2500 : 8000;
       uploadBannerHideTimer = setTimeout(() => {
-        if (el && !uploadPumpRunning) el.hidden = true;
-      }, 8000);
+        if (!el) return;
+        if (errors > 0 && pending + uploading === 0) {
+          clearRetiredUploadJobs().catch(() => {});
+        }
+        if (!uploadPumpRunning) el.hidden = true;
+      }, delay);
     } else if (uploadBannerHideTimer) {
       clearTimeout(uploadBannerHideTimer);
       uploadBannerHideTimer = null;
@@ -1209,7 +1231,33 @@
     }
   }
 
+  async function clearRetiredUploadJobs() {
+    const G = window.ComfyPhoneGallery;
+    let n = 0;
+    try {
+      if (G && G.clearUploadsByDest) {
+        n = await G.clearUploadsByDest(["telegram", "github"]);
+      } else if (G && G.clearAllUploads) {
+        n = await G.clearAllUploads();
+      }
+    } catch (e) {
+      console.warn("clearRetiredUploadJobs", e);
+    }
+    uploadSessionDone = 0;
+    uploadSessionFail = 0;
+    uploadSessionTotal = 0;
+    lastUploadedPaths = [];
+    retiredUploadsCleared = true;
+    const el = $("uploadBanner");
+    if (el) el.hidden = true;
+    return n;
+  }
+
   async function kickUploadPump() {
+    if (!UPLOAD_FEATURES_ENABLED) {
+      await clearRetiredUploadJobs();
+      return;
+    }
     const G = window.ComfyPhoneGallery;
     if (!G || !G.listUploads) return;
     if (uploadPumpRunning) {
@@ -1387,6 +1435,9 @@
   }
 
   async function renderGallery() {
+    if (!retiredUploadsCleared) {
+      clearRetiredUploadJobs().catch((e) => console.error(e));
+    }
     const G = window.ComfyPhoneGallery;
     const grid = $("galleryGrid");
     const empty = $("galleryEmpty");
@@ -1516,6 +1567,47 @@
     return all.filter((x) => selectedGalleryIds.has(x.id));
   }
 
+  function blobToImageFile(blob, filename) {
+    const name = sanitizeFilename(filename || "comfy_phone.png");
+    const type = (blob && blob.type) || "image/png";
+    return new File([blob], name, { type });
+  }
+
+  /**
+   * Prefer Web Share Level 2 (files) so iOS/Android show Save Image / 存储到相册.
+   * Avoid plain <a download> which dumps into Chrome Downloads via Google UI.
+   */
+  async function shareImageFiles(files) {
+    if (!files || !files.length) return { mode: "none", count: 0 };
+    if (typeof navigator !== "undefined" && navigator.share) {
+      try {
+        if (!navigator.canShare || navigator.canShare({ files })) {
+          await navigator.share({ files: files, title: "Comfy 出图" });
+          return { mode: "share", count: files.length };
+        }
+      } catch (e) {
+        if (e && e.name === "AbortError") return { mode: "abort", count: 0 };
+      }
+      let shared = 0;
+      for (let i = 0; i < files.length; i++) {
+        const one = [files[i]];
+        try {
+          if (navigator.canShare && !navigator.canShare({ files: one })) break;
+          await navigator.share({ files: one, title: files[i].name });
+          shared++;
+        } catch (e) {
+          if (e && e.name === "AbortError") {
+            return { mode: "abort", count: shared };
+          }
+          return { mode: "fallback", count: shared, index: i };
+        }
+      }
+      if (shared === files.length) return { mode: "share", count: shared };
+      if (shared > 0) return { mode: "fallback", count: shared, index: shared };
+    }
+    return { mode: "fallback", count: 0, index: 0 };
+  }
+
   async function saveSelectedAlbum() {
     if (!gallerySelectMode) {
       setStatus("请先点「选择」，再勾选图片", "err");
@@ -1526,16 +1618,40 @@
       setStatus("请先选择图库里的图片", "err");
       return;
     }
-    setStatus("正在存到相册 " + items.length + " 张…", "run");
-    for (const item of items) {
-      const name = sanitizeFilename(item.filename || "comfy_phone.png");
-      downloadBlob(item.blob, name);
-      await new Promise((r) => setTimeout(r, 400));
-    }
-    setStatus(
-      "已触发下载 " + items.length + " 张（请在系统弹窗里确认保存到相册）",
-      "ok"
+    setStatus("正在打开系统分享 " + items.length + " 张…", "run");
+    const files = items.map((item) =>
+      blobToImageFile(item.blob, item.filename || "comfy_phone.png")
     );
+    const result = await shareImageFiles(files);
+    if (result.mode === "share") {
+      setStatus(
+        "已打开系统分享（" + result.count + " 张）· 请选「存储图像」或「存储到相册」",
+        "ok"
+      );
+      return;
+    }
+    if (result.mode === "abort") {
+      setStatus(
+        result.count > 0
+          ? "已取消（已分享 " + result.count + " 张）"
+          : "已取消",
+        ""
+      );
+      return;
+    }
+    // Fallback: open first remaining image in lightbox — long-press → 存储图像
+    const idx = result.index != null ? result.index : 0;
+    const left = items[idx];
+    if (left) {
+      openLightbox(left);
+      setStatus(
+        "当前浏览器不支持一键存相册。请长按大图 →「存储图像」" +
+          (items.length > 1 ? "（其余请在图库逐张打开）" : ""),
+        "err"
+      );
+    } else {
+      setStatus("无法分享，请点开大图后长按保存", "err");
+    }
   }
 
   /** @deprecated alias — kept for any leftover callers */
@@ -2466,10 +2582,23 @@
     $("btnLbClose").addEventListener("click", closeLightbox);
     $("btnLbSave").addEventListener("click", () => {
       if (!lightboxItem) return;
-      downloadBlob(
+      const file = blobToImageFile(
         lightboxItem.blob,
         lightboxItem.filename || "comfy_phone.png"
       );
+      shareImageFiles([file])
+        .then((result) => {
+          if (result.mode === "share") {
+            setStatus("已打开系统分享 · 请选「存储图像」或「存储到相册」", "ok");
+          } else if (result.mode === "abort") {
+            setStatus("已取消", "");
+          } else {
+            setStatus("请长按大图 →「存储图像」保存到相册", "err");
+          }
+        })
+        .catch((e) =>
+          setStatus("分享失败: " + (e && e.message ? e.message : String(e)), "err")
+        );
     });
     $("lightbox").addEventListener("click", (ev) => {
       if (ev.target === $("lightbox")) closeLightbox();
@@ -2513,10 +2642,18 @@
     }
 
     ensureUploadBanner();
-    bindUploadResumeHooks();
     syncGallerySelectUi();
-    // Resume any leftover queue from last visit / app switch
-    kickUploadPump().catch((e) => console.error(e));
+    // Telegram / GitHub UI removed — clear leftover IndexedDB queue + hide sticky banner
+    clearRetiredUploadJobs()
+      .then((n) => {
+        if (n > 0) console.info("cleared retired upload jobs:", n);
+      })
+      .catch((e) => console.error(e));
+    // Do not auto-start upload pump (would re-show Telegram banner)
+    if (UPLOAD_FEATURES_ENABLED) {
+      bindUploadResumeHooks();
+      kickUploadPump().catch((e) => console.error(e));
+    }
 
     renderGallery();
   }

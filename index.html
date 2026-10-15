@@ -701,7 +701,7 @@
       本页可放任意静态托管；填 AutoDL/Comfy 公网地址（不要加端口）后点「连接」。
       跨域常被 CORS 拦：需 Comfy 开 CORS（如 --enable-cors-header）、或用 nginx / Cloudflare Worker / 本目录 <code>cors_proxy.py</code> 同源反代。
       生成显示「出图中 x/y 步」；图保存在本机浏览器图库，清缓存会丢；实例关机前 Comfy output 也有原图。
-      图库点「选择」勾选后，可用「存到相册」触发浏览器下载（需在系统弹窗里确认保存到相册）。
+      图库点「选择」勾选后，点「存到相册」会打开系统分享（选「存储图像」/「存储到相册」）；不支持分享时请打开大图长按保存。
     </p>
     </section>
   </div>
@@ -709,7 +709,7 @@
   <div class="lightbox" id="lightbox" hidden>
     <div class="lightbox-bar">
       <button type="button" class="btn btn-ghost" id="btnLbClose">关闭</button>
-      <button type="button" class="btn btn-save" id="btnLbSave" style="margin-top:0">保存/下载</button>
+      <button type="button" class="btn btn-save" id="btnLbSave" style="margin-top:0">存到相册</button>
     </div>
     <div class="lightbox-stage">
       <img id="lightboxImg" alt="图库大图" />
@@ -718,8 +718,8 @@
   </div>
 
   <script src="workflow.js?v=del-only-20261015"></script>
-  <script src="gallery.js?v=album-20261015"></script>
-  <script src="app.js?v=album-20261015"></script>
+  <script src="gallery.js?v=no-tg-banner-20261015"></script>
+  <script src="app.js?v=no-tg-banner-20261015"></script>
 
   <script>
     function googleTranslateElementInit() {

@@ -228,6 +228,27 @@
     return n;
   }
 
+  /** Delete upload-queue jobs whose dest is in dests (e.g. telegram, github). */
+  async function clearUploadsByDest(dests) {
+    const want = new Set(Array.isArray(dests) ? dests : [dests]);
+    const all = await listUploads();
+    let n = 0;
+    for (const u of all) {
+      const d = u.dest || "github";
+      if (want.has(d)) {
+        await deleteUpload(u.id);
+        n++;
+      }
+    }
+    return n;
+  }
+
+  async function clearAllUploads() {
+    const all = await listUploads();
+    for (const u of all) await deleteUpload(u.id);
+    return all.length;
+  }
+
   root.ComfyPhoneGallery = {
     MAX_ITEMS,
     addImage,
@@ -242,5 +263,7 @@
     deleteUpload,
     resetStuckUploads,
     retryFailedUploads,
+    clearUploadsByDest,
+    clearAllUploads,
   };
 })(typeof window !== "undefined" ? window : globalThis);
