@@ -710,7 +710,6 @@
       <h2>图库</h2>
       <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
         <button type="button" class="btn btn-ghost" id="btnPullImages" style="min-height:40px;padding:0 12px;font-size:0.85rem">拉取新照片</button>
-        <button type="button" class="btn btn-danger" id="btnClearGallery">删除</button>
       </div>
     </div>
     <p class="gallery-meta" id="galleryMeta">本机保存 · 加载中…</p>
@@ -722,6 +721,7 @@
         <button type="button" class="btn btn-save" id="btnGalSaveLocal" style="margin-top:0">保存到本地</button>
         <button type="button" class="btn btn-primary" id="btnGalSaveGh" style="margin-top:0;width:auto">存入仓库</button>
         <button type="button" class="btn btn-primary" id="btnGalSaveTg" style="margin-top:0;width:auto;background:#2AABEE">发到 Telegram</button>
+        <button type="button" class="btn btn-danger" id="btnClearGallery" style="margin-top:0;width:auto" title="长按可清空全部">删除</button>
       </span>
     </div>
     <div class="gallery-grid" id="galleryGrid"></div>
@@ -750,9 +750,9 @@
     <div class="lightbox-info" id="lightboxInfo"></div>
   </div>
 
-  <script src="workflow.js?v=tgup-sel-20261015"></script>
-  <script src="gallery.js?v=tgup-sel-20261015"></script>
-  <script src="app.js?v=tgup-sel-20261015"></script>
+  <script src="workflow.js?v=del-sel-20261015"></script>
+  <script src="gallery.js?v=del-sel-20261015"></script>
+  <script src="app.js?v=del-sel-20261015"></script>
 
   <script>
     function googleTranslateElementInit() {
