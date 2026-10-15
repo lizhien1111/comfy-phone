@@ -238,6 +238,7 @@
       box-shadow: 0 0 0 2px rgba(108, 140, 255, 0.45);
     }
     .gallery-check {
+      display: none;
       position: absolute;
       top: 6px;
       left: 6px;
@@ -247,6 +248,11 @@
       margin: 0;
       accent-color: var(--accent);
       cursor: pointer;
+    }
+    .gallery-grid.select-mode .gallery-check { display: block; }
+    .gallery-grid.select-mode .gallery-item.selected {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(108, 140, 255, 0.45);
     }
     .gallery-toolbar {
       display: flex;
@@ -675,6 +681,20 @@
       <p class="hint-inline">token 需有该私有仓库 Contents 写权限；图会上传到仓库 <code>gallery/</code> 目录；公开 Pages 仓库不会存图。</p>
     </div>
 
+    <div class="save-github-row">
+      <label class="chk-label" for="chkSaveTelegram">
+        <input type="checkbox" id="chkSaveTelegram" />
+        发到 Telegram
+      </label>
+    </div>
+    <div class="gh-settings" id="tgSettings" hidden>
+      <label for="tgToken">Telegram Bot Token</label>
+      <input id="tgToken" type="password" autocomplete="off" placeholder="123456:AAH…（BotFather 的 API Token）" />
+      <label for="tgChatId">Chat ID</label>
+      <input id="tgChatId" type="text" inputmode="numeric" autocomplete="off" placeholder="5407949298" />
+      <p class="hint-inline">先打开 <a href="https://t.me/vrenybot" target="_blank" rel="noopener">@vrenybot</a> 发一句 <code>/start</code>，再在本页粘贴 BotFather 给的 token 和你的 chat id（占位示例 5407949298）。图只发到你的私聊，token 存在本机浏览器，不会写进仓库。</p>
+    </div>
+
     <div class="status" id="status">就绪</div>
 
     <div class="preview-box">
@@ -690,15 +710,19 @@
       <h2>图库</h2>
       <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
         <button type="button" class="btn btn-ghost" id="btnPullImages" style="min-height:40px;padding:0 12px;font-size:0.85rem">拉取新照片</button>
-        <button type="button" class="btn btn-danger" id="btnClearGallery">清空图库</button>
+        <button type="button" class="btn btn-danger" id="btnClearGallery">删除</button>
       </div>
     </div>
     <p class="gallery-meta" id="galleryMeta">本机保存 · 加载中…</p>
     <div class="gallery-toolbar" id="galleryToolbar">
-      <button type="button" class="btn btn-ghost" id="btnGalSelectAll">全选</button>
-      <button type="button" class="btn btn-ghost" id="btnGalClearSel">取消勾选</button>
-      <button type="button" class="btn btn-save" id="btnGalSaveLocal" style="margin-top:0">保存到本地</button>
-      <button type="button" class="btn btn-primary" id="btnGalSaveGh" style="margin-top:0;width:auto">存入仓库</button>
+      <button type="button" class="btn btn-ghost" id="btnGalSelectMode">选择</button>
+      <span id="gallerySelectActions" hidden style="display:contents">
+        <button type="button" class="btn btn-ghost" id="btnGalSelectAll">全选</button>
+        <button type="button" class="btn btn-ghost" id="btnGalClearSel">取消勾选</button>
+        <button type="button" class="btn btn-save" id="btnGalSaveLocal" style="margin-top:0">保存到本地</button>
+        <button type="button" class="btn btn-primary" id="btnGalSaveGh" style="margin-top:0;width:auto">存入仓库</button>
+        <button type="button" class="btn btn-primary" id="btnGalSaveTg" style="margin-top:0;width:auto;background:#2AABEE">发到 Telegram</button>
+      </span>
     </div>
     <div class="gallery-grid" id="galleryGrid"></div>
     <div class="gallery-empty" id="galleryEmpty" hidden>还没有图，生成后会自动进图库</div>
@@ -710,6 +734,7 @@
       「存入仓库」会排队上传，切到抖音等 App 回来会自动继续，底部进度条常显；登录 GitHub 打开
       <a href="https://github.com/lizhien1111/comfy-phone-gallery" target="_blank" rel="noopener">comfy-phone-gallery</a>
       的 README 或 <code>gallery/</code> 下的 png 即可看图。
+      「发到 Telegram」同样排队+进度；需先打开 <a href="https://t.me/vrenybot" target="_blank" rel="noopener">@vrenybot</a>，在设置里填 Bot token 与 chat id。
     </p>
     </section>
   </div>
@@ -725,9 +750,9 @@
     <div class="lightbox-info" id="lightboxInfo"></div>
   </div>
 
-  <script src="workflow.js?v=bgup-20261014"></script>
-  <script src="gallery.js?v=bgup-20261014"></script>
-  <script src="app.js?v=bgup-20261014"></script>
+  <script src="workflow.js?v=tgup-sel-20261015"></script>
+  <script src="gallery.js?v=tgup-sel-20261015"></script>
+  <script src="app.js?v=tgup-sel-20261015"></script>
 
   <script>
     function googleTranslateElementInit() {

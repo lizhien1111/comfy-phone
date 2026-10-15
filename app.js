@@ -33,6 +33,9 @@
   let uploadSessionTotal = 0;
   let lastUploadedPaths = [];
 
+  /** Gallery multi-select only active after user taps 「选择」 */
+  let gallerySelectMode = false;
+
   let connectedOk = false;
   let cancelRequested = false;
 
@@ -463,6 +466,127 @@
     syncGhSettingsUi();
   }
 
+  const LS_SAVE_TG = "comfy_phone_save_telegram";
+  const LS_TG_TOKEN = "comfy_phone_telegram_bot_token";
+  const LS_TG_CHAT = "comfy_phone_telegram_chat_id";
+  /** Placeholder suggestion only — never treat as hard-coded default in logic */
+  const TG_CHAT_PLACEHOLDER = "5407949298";
+  const TG_PHOTO_MAX = 10 * 1024 * 1024;
+
+  function syncTgSettingsUi() {
+    const chk = $("chkSaveTelegram");
+    const panel = $("tgSettings");
+    if (!chk || !panel) return;
+    panel.hidden = !chk.checked;
+  }
+
+  function loadTgSettings() {
+    const chk = $("chkSaveTelegram");
+    if (chk) {
+      chk.checked = localStorage.getItem(LS_SAVE_TG) === "1";
+    }
+    const tok = $("tgToken");
+    if (tok) tok.value = localStorage.getItem(LS_TG_TOKEN) || "";
+    const chat = $("tgChatId");
+    if (chat) {
+      chat.value = localStorage.getItem(LS_TG_CHAT) || "";
+      chat.placeholder = TG_CHAT_PLACEHOLDER;
+    }
+    syncTgSettingsUi();
+  }
+
+  function persistTgSettings() {
+    const chk = $("chkSaveTelegram");
+    if (chk) {
+      localStorage.setItem(LS_SAVE_TG, chk.checked ? "1" : "0");
+    }
+    const tok = $("tgToken");
+    if (tok) {
+      const v = (tok.value || "").trim();
+      if (v) localStorage.setItem(LS_TG_TOKEN, v);
+      else localStorage.removeItem(LS_TG_TOKEN);
+    }
+    const chat = $("tgChatId");
+    if (chat) {
+      const v = (chat.value || "").trim();
+      if (v) localStorage.setItem(LS_TG_CHAT, v);
+      else localStorage.removeItem(LS_TG_CHAT);
+    }
+    syncTgSettingsUi();
+  }
+
+  function getTgToken() {
+    return (
+      (($("tgToken") && $("tgToken").value) ||
+        localStorage.getItem(LS_TG_TOKEN) ||
+        "")
+    ).trim();
+  }
+
+  function getTgChatId() {
+    return (
+      (($("tgChatId") && $("tgChatId").value) ||
+        localStorage.getItem(LS_TG_CHAT) ||
+        "")
+    ).trim();
+  }
+
+  function tgApiUrl(method) {
+    const token = getTgToken();
+    return "https://api.telegram.org/bot" + token + "/" + method;
+  }
+
+  async function uploadBlobToTelegramWithMeta(blob, filename, caption) {
+    if (!blob) return { ok: false, error: "no blob" };
+    const token = getTgToken();
+    const chatId = getTgChatId();
+    if (!token) return { ok: false, error: "no telegram token" };
+    if (!chatId) return { ok: false, error: "no chat id" };
+    const safeName = sanitizeFilename(filename);
+    const cap = (caption || safeName || "").slice(0, 1024);
+    async function send(method, field) {
+      const fd = new FormData();
+      fd.append("chat_id", chatId);
+      fd.append(field, blob, safeName);
+      if (cap) fd.append("caption", cap);
+      const res = await fetch(tgApiUrl(method), { method: "POST", body: fd });
+      let detail = "HTTP " + res.status;
+      let data = null;
+      try {
+        data = await res.json();
+        if (data && data.description) detail = String(data.description).slice(0, 160);
+      } catch (e) {}
+      return { res, data, detail };
+    }
+    try {
+      // Prefer sendPhoto; large PNGs fall back to sendDocument
+      const tooBigForPhoto = (blob.size || 0) > TG_PHOTO_MAX;
+      if (!tooBigForPhoto) {
+        const r = await send("sendPhoto", "photo");
+        if (r.res.ok && r.data && r.data.ok) {
+          return { ok: true, via: "photo" };
+        }
+        const d = (r.detail || "").toLowerCase();
+        const sizeFail =
+          r.res.status === 413 ||
+          d.indexOf("too big") >= 0 ||
+          d.indexOf("too large") >= 0 ||
+          d.indexOf("file is too big") >= 0 ||
+          d.indexOf("photo_invalid_dimensions") >= 0;
+        if (!sizeFail) {
+          return { ok: false, error: r.detail };
+        }
+      }
+      const r2 = await send("sendDocument", "document");
+      if (r2.res.ok && r2.data && r2.data.ok) {
+        return { ok: true, via: "document" };
+      }
+      return { ok: false, error: r2.detail };
+    } catch (e) {
+      const msg = e && e.message ? e.message : String(e);
+      return { ok: false, error: msg.slice(0, 160) };
+    }
+  }
 
   async function uploadBlobToGithub(blob, filename, { quiet } = {}) {
     if (!blob) return false;
@@ -564,7 +688,7 @@
     el.hidden = true;
     el.innerHTML =
       '<div class="upload-banner-inner">' +
-      '<div class="upload-banner-text" id="uploadBannerText">存入仓库</div>' +
+      '<div class="upload-banner-text" id="uploadBannerText">上传</div>' +
       '<div class="upload-banner-bar"><div class="upload-banner-fill" id="uploadBannerFill"></div></div>' +
       '<div class="upload-banner-actions">' +
       '<button type="button" class="btn btn-ghost" id="btnUploadRetry" hidden style="min-height:36px;padding:0 10px;font-size:0.8rem;width:auto;margin:0">重试失败</button>' +
@@ -589,12 +713,15 @@
     const textEl = $("uploadBannerText");
     const fill = $("uploadBannerFill");
     const retry = $("btnUploadRetry");
+    const link = $("uploadBannerLink");
     const pending = state.pending || 0;
     const uploading = state.uploading || 0;
     const errors = state.errors || 0;
     const current = state.currentName || "";
     const done = state.done || 0;
     const total = state.total || 0;
+    const dest = state.dest || "github";
+    const label = dest === "telegram" ? "发到 Telegram" : "存入仓库";
     const active = pending + uploading + errors > 0;
     if (!active && done === 0) {
       el.hidden = true;
@@ -607,7 +734,8 @@
     if (uploading || pending) {
       const finished = Math.max(0, total - pending - uploading);
       msg =
-        "存入仓库 " +
+        label +
+        " " +
         finished +
         "/" +
         total +
@@ -615,7 +743,9 @@
         (document.hidden ? " · 后台排队中" : " · 上传中");
       if (errors) msg += " · 失败 " + errors;
     } else if (errors) {
-      msg = "存入仓库完成：成功 " + done + " · 失败 " + errors + "（可点重试）";
+      msg = label + "完成：成功 " + done + " · 失败 " + errors + "（可点重试）";
+    } else if (dest === "telegram") {
+      msg = "已发到 Telegram " + done + " 张 · 打开 @vrenybot 私聊可看";
     } else {
       msg = "已存入仓库 " + done + " 张 · 可在 GitHub 仓库 README 看图";
     }
@@ -623,6 +753,15 @@
     if (fill) {
       const pct = total > 0 ? Math.round(((total - pending - uploading) / total) * 100) : 0;
       fill.style.width = Math.max(0, Math.min(100, pct)) + "%";
+    }
+    if (link) {
+      if (dest === "telegram") {
+        link.href = "https://t.me/vrenybot";
+        link.textContent = "打开 Telegram";
+      } else {
+        link.href = "https://github.com/lizhien1111/comfy-phone-gallery";
+        link.textContent = "在 GitHub 看图";
+      }
     }
     if (retry) retry.hidden = !(errors > 0 && pending + uploading === 0);
     if (!active && errors === 0) {
@@ -643,7 +782,10 @@
     const pending = all.filter((x) => x.status === "pending").length;
     const uploading = all.filter((x) => x.status === "uploading").length;
     const errors = all.filter((x) => x.status === "error").length;
-    const cur = all.find((x) => x.status === "uploading");
+    const cur =
+      all.find((x) => x.status === "uploading") ||
+      all.find((x) => x.status === "pending") ||
+      all.find((x) => x.status === "error");
     const total =
       uploadSessionTotal ||
       pending + uploading + errors + uploadSessionDone;
@@ -654,6 +796,7 @@
       currentName: cur ? cur.filename : "",
       done: uploadSessionDone,
       total,
+      dest: cur && cur.dest === "telegram" ? "telegram" : "github",
     });
   }
 
@@ -683,6 +826,43 @@
         blob: it.blob,
         filename: it.filename || "comfy_phone.png",
         galleryId: it.id || it.galleryId || null,
+        dest: "github",
+      });
+      n++;
+    }
+    uploadSessionTotal += n;
+    await refreshUploadBannerFromDb();
+    kickUploadPump();
+    return n;
+  }
+
+  async function enqueueTelegramUploads(items, { requireTokenUi } = {}) {
+    const G = window.ComfyPhoneGallery;
+    if (!G || !G.enqueueUpload) return 0;
+    const list = (items || []).filter((x) => x && x.blob);
+    if (!list.length) return 0;
+    const tok = getTgToken();
+    const chat = getTgChatId();
+    if (!tok || !chat) {
+      if (requireTokenUi) {
+        const chk = $("chkSaveTelegram");
+        if (chk) chk.checked = true;
+        syncTgSettingsUi();
+        if (!tok) setStatus("请先填写 Telegram Bot Token，再点发到 Telegram", "err");
+        else setStatus("请填写 Chat ID（可参考占位 " + TG_CHAT_PLACEHOLDER + "）", "err");
+      }
+      return 0;
+    }
+    persistTgSettings();
+    let n = 0;
+    for (const it of list) {
+      const fname = it.filename || "comfy_phone.png";
+      await G.enqueueUpload({
+        blob: it.blob,
+        filename: fname,
+        galleryId: it.id || it.galleryId || null,
+        dest: "telegram",
+        caption: it.caption || fname,
       });
       n++;
     }
@@ -699,6 +879,15 @@
     const chk = $("chkSaveGithub");
     if (!chk || !chk.checked) return false;
     const n = await enqueueGithubUploads([{ blob, filename }], { requireTokenUi: true });
+    return n > 0;
+  }
+
+  async function maybeUploadToTelegram(blob, filename) {
+    const chk = $("chkSaveTelegram");
+    if (!chk || !chk.checked) return false;
+    const n = await enqueueTelegramUploads([{ blob, filename, caption: filename }], {
+      requireTokenUi: true,
+    });
     return n > 0;
   }
 
@@ -904,30 +1093,61 @@
         const total =
           uploadSessionTotal ||
           pending.length + uploading.length + errors.length + uploadSessionDone;
+        const peek = uploading[0] || pending[0] || null;
+        const peekDest = peek && peek.dest === "telegram" ? "telegram" : "github";
         updateUploadBanner({
           pending: pending.length,
           uploading: uploading.length,
           errors: errors.length,
-          currentName: uploading[0] ? uploading[0].filename : pending[0] ? pending[0].filename : "",
+          currentName: peek ? peek.filename : "",
           done: uploadSessionDone,
           total,
+          dest: peekDest,
         });
         if (!pending.length) break;
-        if (!getGhToken()) {
-          setStatus("上传暂停：缺少 GitHub Token", "err");
-          break;
-        }
         const job = pending[0];
+        const dest = job.dest === "telegram" ? "telegram" : "github";
+        if (dest === "github" && !getGhToken()) {
+          setStatus("上传暂停：缺少 GitHub Token", "err");
+          // skip github jobs; try telegram next
+          const nextTg = pending.find((x) => x.dest === "telegram");
+          if (!nextTg) break;
+          // move stuck github to error so pump can continue telegram
+          await G.updateUpload(job.id, {
+            status: "error",
+            error: "no github token",
+          });
+          continue;
+        }
+        if (dest === "telegram" && (!getTgToken() || !getTgChatId())) {
+          setStatus("上传暂停：缺少 Telegram Token 或 Chat ID", "err");
+          const nextGh = pending.find((x) => x.dest !== "telegram");
+          if (!nextGh) break;
+          await G.updateUpload(job.id, {
+            status: "error",
+            error: "no telegram credentials",
+          });
+          continue;
+        }
         await G.updateUpload(job.id, {
           status: "uploading",
           attempts: (job.attempts || 0) + 1,
           error: null,
         });
         await refreshUploadBannerFromDb();
-        const result = await uploadBlobToGithubWithMeta(
-          job.blob,
-          job.filename || "comfy_phone.png"
-        );
+        let result;
+        if (dest === "telegram") {
+          result = await uploadBlobToTelegramWithMeta(
+            job.blob,
+            job.filename || "comfy_phone.png",
+            job.caption || job.filename || ""
+          );
+        } else {
+          result = await uploadBlobToGithubWithMeta(
+            job.blob,
+            job.filename || "comfy_phone.png"
+          );
+        }
         if (result.ok) {
           if (result.path) lastUploadedPaths.push(result.path);
           await G.deleteUpload(job.id);
@@ -940,7 +1160,7 @@
           });
           uploadSessionFail++;
         }
-        // brief yield so UI paints; also friendlier to GitHub rate limits
+        // brief yield so UI paints; also friendlier to API rate limits
         await new Promise((r) => setTimeout(r, 180));
       }
       const left = await G.listUploads();
@@ -948,18 +1168,16 @@
       const pendLeft = left.filter((x) => x.status === "pending" || x.status === "uploading").length;
       await refreshUploadBannerFromDb();
       if (!pendLeft && uploadSessionDone > 0) {
-        // Refresh README so images show on github.com when logged in
-        await refreshGalleryReadmeIndex();
+        const hadGh = lastUploadedPaths.length > 0 || left.some((x) => x.dest !== "telegram");
+        // Refresh README when any github uploads succeeded this session
+        if (lastUploadedPaths.length > 0) {
+          await refreshGalleryReadmeIndex();
+        }
         if (errLeft === 0) {
-          setStatus(
-            "已存入仓库 " +
-              uploadSessionDone +
-              " 张 · 打开 GitHub 仓库 README 可看图",
-            "ok"
-          );
+          setStatus("上传完成 " + uploadSessionDone + " 张", "ok");
         } else {
           setStatus(
-            "仓库上传：成功 " + uploadSessionDone + " / 失败 " + errLeft,
+            "上传：成功 " + uploadSessionDone + " / 失败 " + errLeft,
             "err"
           );
         }
@@ -1063,27 +1281,20 @@
       if (!idSet.has(id)) selectedGalleryIds.delete(id);
     }
 
+    grid.classList.toggle("select-mode", gallerySelectMode);
+
     for (const item of items) {
       const wrap = document.createElement("div");
-      wrap.className = "gallery-item" + (selectedGalleryIds.has(item.id) ? " selected" : "");
+      wrap.className =
+        "gallery-item" +
+        (gallerySelectMode && selectedGalleryIds.has(item.id) ? " selected" : "");
       wrap.dataset.id = item.id;
       wrap.title = (item.prompt || item.filename || "").slice(0, 80);
 
-      const chk = document.createElement("input");
-      chk.type = "checkbox";
-      chk.className = "gallery-check";
-      chk.checked = selectedGalleryIds.has(item.id);
-      chk.addEventListener("click", (ev) => ev.stopPropagation());
-      chk.addEventListener("change", () => {
-        if (chk.checked) selectedGalleryIds.add(item.id);
-        else selectedGalleryIds.delete(item.id);
-        wrap.classList.toggle("selected", chk.checked);
-        updateGallerySelMeta();
-      });
-
       const btn = document.createElement("button");
       btn.type = "button";
-      btn.style.cssText = "display:block;width:100%;height:100%;padding:0;border:0;background:transparent;cursor:pointer";
+      btn.style.cssText =
+        "display:block;width:100%;height:100%;padding:0;border:0;background:transparent;cursor:pointer";
       const img = document.createElement("img");
       img.alt = "缩略图";
       img.loading = "lazy";
@@ -1091,21 +1302,71 @@
       thumbUrls.push(url);
       img.src = url;
       btn.appendChild(img);
-      btn.addEventListener("click", () => openLightbox(item));
 
-      wrap.appendChild(chk);
+      if (gallerySelectMode) {
+        const chk = document.createElement("input");
+        chk.type = "checkbox";
+        chk.className = "gallery-check";
+        chk.checked = selectedGalleryIds.has(item.id);
+        chk.addEventListener("click", (ev) => ev.stopPropagation());
+        chk.addEventListener("change", () => {
+          if (chk.checked) selectedGalleryIds.add(item.id);
+          else selectedGalleryIds.delete(item.id);
+          wrap.classList.toggle("selected", chk.checked);
+          updateGallerySelMeta();
+        });
+        btn.addEventListener("click", () => {
+          const next = !selectedGalleryIds.has(item.id);
+          if (next) selectedGalleryIds.add(item.id);
+          else selectedGalleryIds.delete(item.id);
+          chk.checked = next;
+          wrap.classList.toggle("selected", next);
+          updateGallerySelMeta();
+        });
+        wrap.appendChild(chk);
+      } else {
+        btn.addEventListener("click", () => openLightbox(item));
+      }
+
       wrap.appendChild(btn);
       grid.appendChild(wrap);
     }
     updateGallerySelMeta();
+    syncGallerySelectUi();
+  }
+
+  function syncGallerySelectUi() {
+    const modeBtn = $("btnGalSelectMode");
+    const actions = $("gallerySelectActions");
+    if (modeBtn) modeBtn.textContent = gallerySelectMode ? "完成" : "选择";
+    if (actions) {
+      if (gallerySelectMode) {
+        actions.hidden = false;
+        actions.style.display = "contents";
+      } else {
+        actions.hidden = true;
+      }
+    }
+    const grid = $("galleryGrid");
+    if (grid) grid.classList.toggle("select-mode", gallerySelectMode);
+  }
+
+  async function setGallerySelectMode(on) {
+    gallerySelectMode = !!on;
+    if (!gallerySelectMode) {
+      selectedGalleryIds.clear();
+    }
+    syncGallerySelectUi();
+    await renderGallery();
   }
 
   function updateGallerySelMeta() {
     const meta = $("galleryMeta");
     if (!meta) return;
     const n = selectedGalleryIds.size;
-    const base = meta.textContent.replace(/ · 已勾选 \d+ 张$/, "");
-    meta.textContent = n > 0 ? base + " · 已勾选 " + n + " 张" : base;
+    const base = meta.textContent.replace(/ · 已选 \d+ 张$/, "").replace(/ · 已勾选 \d+ 张$/, "");
+    meta.textContent =
+      gallerySelectMode && n > 0 ? base + " · 已选 " + n + " 张" : base;
   }
 
   async function getSelectedGalleryItems() {
@@ -1118,7 +1379,7 @@
   async function saveSelectedLocal() {
     const items = await getSelectedGalleryItems();
     if (!items.length) {
-      setStatus("请先勾选图库里的图片", "err");
+      setStatus(gallerySelectMode ? "请先选择图库里的图片" : "请先点「选择」，再勾选图片", "err");
       return;
     }
     setStatus("正在保存 " + items.length + " 张到本地…", "run");
@@ -1130,18 +1391,44 @@
   }
 
   async function saveSelectedGithub() {
+    if (!gallerySelectMode) {
+      setStatus("请先点「选择」，再勾选图片", "err");
+      return;
+    }
     const items = await getSelectedGalleryItems();
     if (!items.length) {
-      setStatus("请先勾选图库里的图片", "err");
+      setStatus("请先选择图库里的图片", "err");
       return;
     }
     uploadSessionDone = 0;
     uploadSessionFail = 0;
     uploadSessionTotal = 0;
+    lastUploadedPaths = [];
     const n = await enqueueGithubUploads(items, { requireTokenUi: true });
     if (!n) return;
     setStatus(
       "已加入上传队列 " + n + " 张（可切到别的 App，回来会继续）",
+      "run"
+    );
+  }
+
+  async function saveSelectedTelegram() {
+    if (!gallerySelectMode) {
+      setStatus("请先点「选择」，再勾选图片", "err");
+      return;
+    }
+    const items = await getSelectedGalleryItems();
+    if (!items.length) {
+      setStatus("请先选择图库里的图片", "err");
+      return;
+    }
+    uploadSessionDone = 0;
+    uploadSessionFail = 0;
+    uploadSessionTotal = 0;
+    const n = await enqueueTelegramUploads(items, { requireTokenUi: true });
+    if (!n) return;
+    setStatus(
+      "已加入 Telegram 队列 " + n + " 张（可切到别的 App，回来会继续）",
       "run"
     );
   }
@@ -1192,13 +1479,15 @@
   async function clearGallery() {
     const G = window.ComfyPhoneGallery;
     if (!G) return;
-    if (!confirm("确定清空本机图库？此操作不可恢复。")) return;
+    if (!confirm("确定删除本机图库全部图片？此操作不可恢复。")) return;
     try {
       await G.clearAll();
+      selectedGalleryIds.clear();
+      gallerySelectMode = false;
       closeLightbox();
       await renderGallery();
     } catch (e) {
-      alert("清空失败: " + (e && e.message ? e.message : e));
+      alert("删除失败: " + (e && e.message ? e.message : e));
     }
   }
 
@@ -1312,6 +1601,7 @@
             createdAt: Date.now() - (items.length - i),
           });
           await maybeUploadToGithub(blob, filename);
+          await maybeUploadToTelegram(blob, filename);
           have[filename] = true;
           lastBlobLocal = blob;
           lastName = filename;
@@ -1602,6 +1892,8 @@
       let lastSeed = baseSeed;
       let ghOk = 0;
       let ghFail = 0;
+      let tgOk = 0;
+      let tgFail = 0;
       for (let n = 0; n < batch; n++) {
         if (cancelRequested) {
           setStatus("已取消 · 完成 " + n + "/" + batch, "err");
@@ -1660,6 +1952,11 @@
           if (up) ghOk++;
           else ghFail++;
         }
+        const upTg = await maybeUploadToTelegram(blob, filename);
+        if ($("chkSaveTelegram") && $("chkSaveTelegram").checked) {
+          if (upTg) tgOk++;
+          else tgFail++;
+        }
       }
       let doneMsg =
         "完成 · " +
@@ -1670,12 +1967,23 @@
       let doneKind = "ok";
       if (ghOk || ghFail) {
         if (ghFail === 0) {
-          doneMsg += " · 已加入上传队列 " + ghOk + " 张";
+          doneMsg += " · 仓库队列 " + ghOk;
         } else if (ghOk === 0) {
           doneMsg += " · 存入仓库未排队（检查 Token）";
           doneKind = "err";
         } else {
-          doneMsg += " · 队列 " + ghOk + " · 跳过 " + ghFail;
+          doneMsg += " · 仓库队列 " + ghOk + " · 跳过 " + ghFail;
+          doneKind = "err";
+        }
+      }
+      if (tgOk || tgFail) {
+        if (tgFail === 0) {
+          doneMsg += " · Telegram 队列 " + tgOk;
+        } else if (tgOk === 0) {
+          doneMsg += " · Telegram 未排队（检查 Token/Chat ID）";
+          doneKind = "err";
+        } else {
+          doneMsg += " · Telegram " + tgOk + " · 跳过 " + tgFail;
           doneKind = "err";
         }
       }
@@ -1943,8 +2251,16 @@
     });
     $("btnClearGallery").addEventListener("click", clearGallery);
     if ($("btnPullImages")) $("btnPullImages").addEventListener("click", pullNewImages);
+    if ($("btnGalSelectMode")) {
+      $("btnGalSelectMode").addEventListener("click", () => {
+        setGallerySelectMode(!gallerySelectMode).catch((e) => console.error(e));
+      });
+    }
     if ($("btnGalSelectAll")) {
       $("btnGalSelectAll").addEventListener("click", async () => {
+        if (!gallerySelectMode) {
+          await setGallerySelectMode(true);
+        }
         const G = window.ComfyPhoneGallery;
         if (!G) return;
         const items = await G.listImages();
@@ -1964,6 +2280,11 @@
     });
     if ($("btnGalSaveGh")) $("btnGalSaveGh").addEventListener("click", () => {
       saveSelectedGithub().catch((e) => setStatus("上传失败: " + (e && e.message ? e.message : String(e)), "err"));
+    });
+    if ($("btnGalSaveTg")) $("btnGalSaveTg").addEventListener("click", () => {
+      saveSelectedTelegram().catch((e) =>
+        setStatus("Telegram 失败: " + (e && e.message ? e.message : String(e)), "err")
+      );
     });
     if ($("btnCleanComfy")) $("btnCleanComfy").addEventListener("click", cleanComfy);
     if ($("btnShutdownComfy")) $("btnShutdownComfy").addEventListener("click", shutdownComfy);
@@ -1993,8 +2314,22 @@
       $("ghRepo").addEventListener("blur", persistGhSettings);
     }
 
+    loadTgSettings();
+    if ($("chkSaveTelegram")) {
+      $("chkSaveTelegram").addEventListener("change", persistTgSettings);
+    }
+    if ($("tgToken")) {
+      $("tgToken").addEventListener("change", persistTgSettings);
+      $("tgToken").addEventListener("blur", persistTgSettings);
+    }
+    if ($("tgChatId")) {
+      $("tgChatId").addEventListener("change", persistTgSettings);
+      $("tgChatId").addEventListener("blur", persistTgSettings);
+    }
+
     ensureUploadBanner();
     bindUploadResumeHooks();
+    syncGallerySelectUi();
     // Resume any leftover queue from last visit / app switch
     kickUploadPump().catch((e) => console.error(e));
 

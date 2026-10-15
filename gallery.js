@@ -1,5 +1,5 @@
 /**
- * IndexedDB gallery + durable GitHub upload queue for Comfy phone page.
+ * IndexedDB gallery + durable upload queue (GitHub / Telegram) for Comfy phone page.
  * Upload queue keeps Blob copies so switching apps / reloading can resume.
  */
 (function (root) {
@@ -119,11 +119,17 @@
     const id =
       record.id ||
       "up_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
+    const dest =
+      record.dest === "telegram" || record.dest === "github"
+        ? record.dest
+        : "github";
     const item = {
       id,
       filename: record.filename || "comfy_phone.png",
       blob: record.blob,
       galleryId: record.galleryId || null,
+      dest,
+      caption: record.caption || "",
       status: "pending",
       error: null,
       attempts: record.attempts || 0,
