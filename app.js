@@ -2449,10 +2449,27 @@
     const clr = $("btnClearImport");
     // Prefer label[for=pngImportFile] (see index.html): iOS Safari/Chrome often
     // ignore programmatic input.click() from a separate button.
+    function onImportFail(e) {
+      console.error(e);
+      setStatus("导入失败: " + (e && e.message ? e.message : String(e)), "err");
+      setImportHint("解析失败: " + (e && e.message ? e.message : String(e)), "err");
+    }
     if (input) {
       input.addEventListener("change", () => {
         const f = input.files && input.files[0];
-        if (f) handlePngImportFile(f).catch((e) => console.error(e));
+        if (!f) {
+          setStatus("未选择文件", "err");
+          setImportHint("未选择文件，请再试一次", "err");
+          return;
+        }
+        handlePngImportFile(f)
+          .catch(onImportFail)
+          .finally(() => {
+            // Allow re-selecting the same file later
+            try {
+              input.value = "";
+            } catch (e) {}
+          });
       });
     }
     if (btn && input && btn.tagName === "BUTTON") {
@@ -2474,7 +2491,7 @@
         ev.preventDefault();
         zone.classList.remove("dragover");
         const f = ev.dataTransfer && ev.dataTransfer.files && ev.dataTransfer.files[0];
-        if (f) handlePngImportFile(f).catch((e) => console.error(e));
+        if (f) handlePngImportFile(f).catch(onImportFail);
       });
     }
   }
@@ -3287,6 +3304,7 @@
 
     // Always start on boot so user can reconnect / open Comfy
     showPage("boot");
+    bindPngImport();
     $("btnGen").addEventListener("click", generate);
     if ($("btnCancel")) $("btnCancel").addEventListener("click", cancelTask);
     $("btnSave").addEventListener("click", saveImage);
