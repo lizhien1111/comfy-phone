@@ -2447,14 +2447,21 @@
     const input = $("pngImportFile");
     const zone = $("pngImportZone");
     const clr = $("btnClearImport");
-    // Prefer label[for=pngImportFile] (see index.html): iOS Safari/Chrome often
-    // ignore programmatic input.click() from a separate button.
+    // Input is nested inside label.btn-import (full-size transparent overlay) so
+    // iOS Safari/Chrome open the picker from a real user gesture on the input.
     function onImportFail(e) {
       console.error(e);
       setStatus("导入失败: " + (e && e.message ? e.message : String(e)), "err");
       setImportHint("解析失败: " + (e && e.message ? e.message : String(e)), "err");
     }
+    function hintPick() {
+      setStatus("请选择 PNG（相册或文件）…", "run");
+      setImportHint("选 Comfy 原图 PNG；微信压缩过的图没有工作流元数据", "");
+    }
     if (input) {
+      // Immediate feedback when user taps the control (before OS picker closes)
+      input.addEventListener("click", hintPick);
+      input.addEventListener("touchstart", hintPick, { passive: true });
       input.addEventListener("change", () => {
         const f = input.files && input.files[0];
         if (!f) {
@@ -2471,9 +2478,19 @@
             } catch (e) {}
           });
       });
+    } else {
+      setImportHint("导入控件未找到，请强制刷新页面", "err");
     }
+    // Fallback only if markup still uses a plain button (old cache)
     if (btn && input && btn.tagName === "BUTTON") {
-      btn.addEventListener("click", () => input.click());
+      btn.addEventListener("click", () => {
+        hintPick();
+        try {
+          input.click();
+        } catch (e) {
+          onImportFail(e);
+        }
+      });
     }
     if (clr) {
       clr.addEventListener("click", () => {
